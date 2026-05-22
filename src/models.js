@@ -5,17 +5,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 /**
  * Load a GLTF model with progress tracking
  */
-function loadGLTF(url, onProgress) {
+function loadGLTF(url, manager) {
   return new Promise((resolve, reject) => {
-    const loader = new GLTFLoader();
+    const loader = new GLTFLoader(manager);
     loader.load(
       url,
       (gltf) => resolve(gltf),
-      (xhr) => {
-        if (xhr.lengthComputable && onProgress) {
-          onProgress(xhr.loaded / xhr.total);
-        }
-      },
+      undefined,
       (err) => reject(err)
     );
   });
@@ -262,21 +258,24 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
  * Load both models and return them
  */
 export async function loadModels(scene, onProgress) {
-  let progress1 = 0, progress2 = 0;
-  const updateProgress = () => {
-    onProgress((progress1 + progress2) / 2);
+  const manager = new THREE.LoadingManager();
+
+  manager.onStart = () => {
+    onProgress?.(0.03);
+  };
+
+  manager.onProgress = (_url, itemsLoaded, itemsTotal) => {
+    if (itemsTotal > 0) {
+      onProgress?.(itemsLoaded / itemsTotal);
+    }
   };
 
   const [ruinGltf, reconGltf] = await Promise.all([
-    loadGLTF('/the_heidentor_in_petronell-carnuntum/scene.gltf', (p) => {
-      progress1 = p;
-      updateProgress();
-    }),
-    loadGLTF('/reconstruction_of_the_heidentor/scene.gltf', (p) => {
-      progress2 = p;
-      updateProgress();
-    })
+    loadGLTF('/the_heidentor_in_petronell-carnuntum/scene.gltf', manager),
+    loadGLTF('/reconstruction_of_the_heidentor/scene.gltf', manager)
   ]);
+
+  onProgress?.(1);
 
   const ruinWrapper = normalizeModel(ruinGltf.scene);
   

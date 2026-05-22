@@ -57,6 +57,25 @@ const loadingScreen = document.getElementById('loading-screen');
 const loadingBar = document.getElementById('loading-bar');
 const loadingPercent = document.getElementById('loading-percent');
 
+let displayedLoadingProgress = 0;
+let targetLoadingProgress = 0.03;
+let loadingComplete = false;
+
+function renderLoadingProgress(progress) {
+  const pct = Math.round(THREE.MathUtils.clamp(progress, 0, 1) * 100);
+  loadingBar.style.width = pct + '%';
+  loadingPercent.textContent = pct + '%';
+}
+
+const loadingProgressTimer = window.setInterval(() => {
+  if (!loadingComplete) {
+    targetLoadingProgress = Math.min(targetLoadingProgress + 0.006, 0.92);
+  }
+
+  displayedLoadingProgress = THREE.MathUtils.lerp(displayedLoadingProgress, targetLoadingProgress, 0.12);
+  renderLoadingProgress(displayedLoadingProgress);
+}, 100);
+
 // ─── RENDERER ─────────────────────────────────────────
 let renderer;
 try {
@@ -198,9 +217,7 @@ const alignLines = [];
 async function init() {
   try {
     const result = await loadModels(scene, (progress) => {
-      const pct = Math.round(progress * 100);
-      loadingBar.style.width = pct + '%';
-      loadingPercent.textContent = pct + '%';
+      targetLoadingProgress = Math.max(targetLoadingProgress, progress);
     });
 
     ruinModel = result.ruinModel;
@@ -262,13 +279,18 @@ async function init() {
     }
   } catch (err) {
     console.error('Failed to load models:', err);
+    loadingComplete = true;
+    window.clearInterval(loadingProgressTimer);
     loadingPercent.textContent = 'Fehler beim Laden!';
   }
 }
 
 function finishLoading(showAlignment) {
-  loadingBar.style.width = '100%';
-  loadingPercent.textContent = '100%';
+  loadingComplete = true;
+  targetLoadingProgress = 1;
+  displayedLoadingProgress = 1;
+  window.clearInterval(loadingProgressTimer);
+  renderLoadingProgress(1);
 
   gsap.to(loadingScreen, {
     opacity: 0,
