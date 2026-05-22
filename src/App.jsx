@@ -72,7 +72,9 @@ function App() {
     alignment: null,
     currentStationIndex: 0,
     scrollProgress: 0,
-    hasUserManipulatedCamera: false
+    hasUserManipulatedCamera: false,
+    introPhase: 'idle',
+    hasIntroPlayed: false
   });
 
   const [activeTab, setActiveTab] = useState('history'); // 'history' | 'architecture' | 'facts'
@@ -383,6 +385,11 @@ function App() {
     return null; // Rendered inside HTML template loading screen
   }
 
+  const introPhase = appState.introPhase || 'done';
+  const isIntroActive = appState.stationMode === 'scroll'
+    && !appState.hasIntroPlayed
+    && ['title', 'model', 'text'].includes(introPhase);
+
   // 1. ALIGNMENT MODE INTERFACE
   if (appState.mode === 'aligning') {
     return (
@@ -555,12 +562,15 @@ function App() {
                 const showWatermark = appState.stationMode === 'editor'
                   ? editingIndex === 0
                   : appState.currentStationIndex === 0;
+                const useIntroWatermarkFade = isIntroActive && showWatermark;
                 return (
                   <div 
                     className={`fixed inset-x-0 w-screen top-[13%] sm:top-[10%] md:top-[8%] text-center pointer-events-none select-none transition-all duration-1000 ease-out z-[2] overflow-visible ${
                       showWatermark 
                         ? 'opacity-100 scale-100' 
                         : 'opacity-0 scale-95'
+                    } ${
+                      useIntroWatermarkFade ? 'intro-title-fade-in' : ''
                     }`}
                   >
                     <span className="hero-watermark-title font-serif watermark-text-gradient uppercase leading-none block select-none whitespace-nowrap overflow-visible">
@@ -589,6 +599,7 @@ function App() {
 
             const isLastStation = appState.stationMode === 'scroll' && activeIndex === appState.stations.length - 1;
             const shouldFadeOut = isLastStation && appState.hasUserManipulatedCamera;
+            const shouldWaitForIntroText = isIntroActive && introPhase !== 'text';
 
             // Render behind the 3D model if configured and NOT in editor mode
             const renderBehind = appState.stationMode !== 'editor' && activeStation.textLayer === 'behind';
@@ -597,7 +608,7 @@ function App() {
               <div 
                 key={activeStation.id}
                 className={`fixed w-full max-w-lg pointer-events-none text-left transition-all duration-1000 ease-in-out station-text-panel ${
-                  shouldFadeOut ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
+                  shouldFadeOut || shouldWaitForIntroText ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
                 }`}
                 style={{
                   left: `${activeStation.textX ?? 10}%`,
@@ -660,6 +671,12 @@ function App() {
                   </p>
 
                   {/* Reveal mode notification indicator */}
+                  {activeStation.viewMode === 'portal' && (
+                    <div className="mt-4 bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 text-[10px] leading-relaxed text-amber-400/90 flex gap-2 items-start max-w-md">
+                      <Compass size={12} className="mt-0.5 shrink-0 animate-pulse" />
+                      <span>Zeitportal komplett: Die Rekonstruktion ist voll sichtbar, der Übergang zum Reveal folgt in der nächsten Station.</span>
+                    </div>
+                  )}
                   {activeStation.viewMode === 'reveal' && (
                     <div className="mt-4 bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 text-[10px] leading-relaxed text-amber-400/90 flex gap-2 items-start max-w-md">
                       <Compass size={12} className="mt-0.5 shrink-0 animate-pulse" />
@@ -1107,6 +1124,7 @@ function App() {
                     >
                       <option value="ruin">Gegenwart (Ruine)</option>
                       <option value="recon">Rekonstruktion</option>
+                      <option value="portal">Zeitportal (komplett)</option>
                       <option value="reveal">Zeitportal (Reveal)</option>
                     </select>
                   </div>
@@ -1139,8 +1157,8 @@ function App() {
                   </button>
                 </div>
 
-                {/* Slider values specifically for Reveal portal state */}
-                {station.viewMode === 'reveal' && (
+                {/* Slider values specifically for portal states */}
+                {(station.viewMode === 'portal' || station.viewMode === 'reveal') && (
                   <div className="grid grid-cols-2 gap-3 mt-1 p-2 bg-zinc-950/30 border border-zinc-850/30 rounded-xl">
                     <div className="flex flex-col gap-0.5 text-left">
                       <div className="flex justify-between text-[9px] text-zinc-500">
@@ -1148,7 +1166,7 @@ function App() {
                         <span>{Math.round(station.revealRadius * 100)}%</span>
                       </div>
                       <input 
-                        type="range" min="0.10" max="0.55" step="0.01" 
+                        type="range" min="0.10" max={station.viewMode === 'portal' ? '3.50' : '0.55'} step="0.01" 
                         value={station.revealRadius} 
                         onChange={(e) => handleUpdateStationText(index, 'revealRadius', parseFloat(e.target.value))}
                         className="w-full accent-amber-500 h-1 bg-zinc-800 rounded"
@@ -1166,6 +1184,36 @@ function App() {
                         className="w-full accent-amber-500 h-1 bg-zinc-800 rounded"
                       />
                     </div>
+                  </div>
+                )}
+                {(station.viewMode === 'portal' || station.viewMode === 'reveal') && (
+                  <div className="grid grid-cols-2 gap-3 mt-1 p-2 bg-zinc-950/30 border border-amber-500/10 rounded-xl">
+                    {[
+                      ['portalRadius', 'Portalgröße', 1.0, 4.5, 0.05, 3.2],
+                      ['portalSoftness', 'Portalweichheit', 0.02, 0.5, 0.01, 0.2],
+                      ['portalTransitionDuration', 'Portaldauer', 0.5, 5.0, 0.1, 2.8],
+                      ['portalMouseStart', 'Mausstart', 0.0, 0.8, 0.01, 0.2],
+                      ['portalRuinFadeEnd', 'Ruine aus', 0.02, 0.8, 0.01, 0.22],
+                      ['portalRevealRuinFadeStart', 'Reveal Ruine ab', 0.0, 0.8, 0.01, 0.18],
+                      ['portalRevealRuinFadeEnd', 'Reveal Ruine voll', 0.1, 1.0, 0.01, 0.85],
+                      ['portalReconFadeEnd', 'Portal ein', 0.05, 0.9, 0.01, 0.46]
+                    ].map(([field, label, min, max, step, fallback]) => (
+                      <div key={field} className="flex flex-col gap-0.5 text-left">
+                        <div className="flex justify-between text-[9px] text-zinc-500">
+                          <span>{label}</span>
+                          <span>{Number(station[field] ?? fallback).toFixed(2)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          step={step}
+                          value={station[field] ?? fallback}
+                          onChange={(e) => handleUpdateStationText(index, field, parseFloat(e.target.value))}
+                          className="w-full accent-amber-500 h-1 bg-zinc-800 rounded"
+                        />
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

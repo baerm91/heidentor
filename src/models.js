@@ -103,6 +103,7 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
         shader.uniforms.uTime = revealUniforms.uTime;
         shader.uniforms.uOpacityRuin = revealUniforms.uOpacityRuin;
         shader.uniforms.uOpacityRecon = revealUniforms.uOpacityRecon;
+        shader.uniforms.uPortalTint = revealUniforms.uPortalTint;
         
         // Pass world position and uniform data from vertex shader
         shader.vertexShader = shader.vertexShader.replace(
@@ -163,6 +164,7 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
           uniform float uTime;
           uniform float uOpacityRuin;
           uniform float uOpacityRecon;
+          uniform float uPortalTint;
           varying vec3 vWorldPosition;`
         );
         
@@ -173,7 +175,8 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
             `#include <dithering_fragment>
             gl_FragColor.a = uOpacityRecon; // Set reconstruction opacity
             if (uShowAlways) {
-              // Show as-is (alignment mode or transition)
+              vec3 portalTint = vec3(1.0, 0.72, 0.32);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, portalTint, 0.26 * uPortalTint);
             } else if (uRevealActive) {
               // 3D spatial reveal
               float reveal3D = 0.0;
