@@ -578,19 +578,28 @@ function computeTransitionState(mode0, mode1, r0, s0, r1, s1, t) {
       revealRadius = THREE.MathUtils.lerp(r0, 0.0, t);
       revealSoftness = THREE.MathUtils.lerp(s0, 0.0, t);
     }
-  } else if ((mode0 === 'recon' && mode1 === 'reveal') || (mode0 === 'reveal' && mode1 === 'recon')) {
-    revealActive = true;
-    showAlways = false;
+  } else if (mode0 === 'recon' && mode1 === 'reveal') {
+    const revealStart = 0.82;
+    const revealT = THREE.MathUtils.smoothstep(t, revealStart, 1.0);
+
+    // Keep the reconstruction fully renderable until the ruin has faded in.
+    // Otherwise the reveal shader has no mouse hit yet and both models can disappear.
+    revealActive = revealT > 0.0;
+    showAlways = revealT < 1.0;
+    opacityRuin = THREE.MathUtils.smoothstep(t, 0.0, revealStart);
     opacityRecon = 1.0;
-    if (mode0 === 'recon') {
-      opacityRuin = t;
-      revealRadius = THREE.MathUtils.lerp(3.0, r1, t);
-      revealSoftness = THREE.MathUtils.lerp(0.1, s1, t);
-    } else {
-      opacityRuin = 1.0 - t;
-      revealRadius = THREE.MathUtils.lerp(r0, 3.0, t);
-      revealSoftness = THREE.MathUtils.lerp(s0, 0.1, t);
-    }
+    revealRadius = THREE.MathUtils.lerp(3.0, r1, revealT);
+    revealSoftness = THREE.MathUtils.lerp(0.1, s1, revealT);
+  } else if (mode0 === 'reveal' && mode1 === 'recon') {
+    const revealEnd = 0.18;
+    const revealT = 1.0 - THREE.MathUtils.smoothstep(t, 0.0, revealEnd);
+
+    revealActive = revealT > 0.0;
+    showAlways = revealT <= 0.0;
+    opacityRuin = 1.0 - THREE.MathUtils.smoothstep(t, revealEnd, 1.0);
+    opacityRecon = 1.0;
+    revealRadius = THREE.MathUtils.lerp(3.0, r0, revealT);
+    revealSoftness = THREE.MathUtils.lerp(0.1, s0, revealT);
   }
 
   return {
