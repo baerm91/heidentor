@@ -596,7 +596,7 @@ function App() {
             const textBlockElement = (
               <div 
                 key={activeStation.id}
-                className={`fixed w-full max-w-lg pointer-events-none text-left transition-all duration-1000 ease-in-out ${
+                className={`fixed w-full max-w-lg pointer-events-none text-left transition-all duration-1000 ease-in-out station-text-panel ${
                   shouldFadeOut ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
                 }`}
                 style={{
@@ -712,7 +712,7 @@ function App() {
 
             return (
               <div
-                className={`fixed z-30 transition-all duration-700 ease-in-out ${
+                className={`fixed z-30 transition-all duration-700 ease-in-out station-video-panel ${
                   appState.stationMode === 'editor'
                     ? 'pointer-events-auto cursor-move border border-dashed border-cyan-400/60 bg-zinc-950/35 p-2 rounded-xl'
                     : 'pointer-events-auto'
@@ -763,7 +763,7 @@ function App() {
         <>
           {/* Right Navigation Dot List (Fixed, visible for station 2+) */}
           {appState.currentStationIndex > 0 && (
-            <div className="fixed right-4 sm:right-6 md:right-8 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-4 pointer-events-auto items-end select-none">
+            <div className="fixed right-4 sm:right-6 md:right-8 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-4 pointer-events-auto items-end select-none station-dots-nav">
               {appState.stations.map((s, idx) => {
                 const isActive = appState.currentStationIndex === idx;
                 return (
@@ -773,7 +773,7 @@ function App() {
                     className="flex items-center gap-2 group outline-none"
                     title={stripHighlights(s.title)}
                   >
-                    <span className={`text-[10px] font-medium tracking-wide transition-all duration-300 opacity-0 group-hover:opacity-100 pr-1 ${isActive ? 'text-amber-400 font-bold opacity-100' : 'text-zinc-500'}`}>
+                    <span className={`dot-label text-[10px] font-medium tracking-wide transition-all duration-300 opacity-0 group-hover:opacity-100 pr-1 ${isActive ? 'text-amber-400 font-bold opacity-100' : 'text-zinc-500'}`}>
                       {stripHighlights(s.title)}
                     </span>
                     <span className={`w-3 h-3 rounded-full border transition-all duration-300 flex items-center justify-center ${
