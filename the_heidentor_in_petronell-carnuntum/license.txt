@@ -1,0 +1,11 @@
+Model Information:
+* title:	The Heidentor in Petronell-Carnuntum
+* source:	https://sketchfab.com/3d-models/the-heidentor-in-petronell-carnuntum-807a34403d12449ea667f3c586d47a98
+* author:	noe-3d.at (https://sketchfab.com/www.noe-3d.at)
+
+Model License:
+* license type:	CC-BY-SA-4.0 (http://creativecommons.org/licenses/by-sa/4.0/)
+* requirements:	Author must be credited. Modified versions must have the same license. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "The Heidentor in Petronell-Carnuntum" (https://sketchfab.com/3d-models/the-heidentor-in-petronell-carnuntum-807a34403d12449ea667f3c586d47a98) by noe-3d.at (https://sketchfab.com/www.noe-3d.at) licensed under CC-BY-SA-4.0 (http://creativecommons.org/licenses/by-sa/4.0/)
