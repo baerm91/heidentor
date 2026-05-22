@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 3005",
+    "prebuild": "node scripts/verify-lfs-assets.mjs",
     "build": "vite build",
     "postbuild": "node scripts/copy-static-assets.mjs",
     "preview": "vite preview"
