@@ -1064,19 +1064,19 @@
   ],
   "images": [
     {
-      "uri": "textures/Heidentor_baseColor.png"
+      "uri": "textures/Heidentor_baseColor.jpg"
     },
     {
-      "uri": "textures/Heidentor_normal.png"
+      "uri": "textures/Heidentor_normal.jpg"
     },
     {
-      "uri": "textures/Marc_Aurel_O_Material_u1_v1_baseColor.png"
+      "uri": "textures/Marc_Aurel_O_Material_u1_v1_baseColor.jpg"
     },
     {
-      "uri": "textures/Marc_Aurel_O_Material_u1_v1_metallicRoughness.png"
+      "uri": "textures/Marc_Aurel_O_Material_u1_v1_metallicRoughness.jpg"
     },
     {
-      "uri": "textures/Marc_Aurel_O_Material_u1_v1_normal.png"
+      "uri": "textures/Marc_Aurel_O_Material_u1_v1_normal.jpg"
     }
   ],
   "materials": [

@@ -9655,25 +9655,25 @@
   ],
   "images": [
     {
-      "uri": "textures/Heidentor_O_u1_v1_baseColor.png"
+      "uri": "textures/Heidentor_O_u1_v1_baseColor.jpg"
     },
     {
-      "uri": "textures/Heidentor_O_u2_v1_baseColor.png"
+      "uri": "textures/Heidentor_O_u2_v1_baseColor.jpg"
     },
     {
-      "uri": "textures/Heidentor_O_u3_v1_baseColor.png"
+      "uri": "textures/Heidentor_O_u3_v1_baseColor.jpg"
     },
     {
-      "uri": "textures/Heidentor_O_u1_v2_baseColor.png"
+      "uri": "textures/Heidentor_O_u1_v2_baseColor.jpg"
     },
     {
-      "uri": "textures/Heidentor_O_u2_v2_baseColor.png"
+      "uri": "textures/Heidentor_O_u2_v2_baseColor.jpg"
     },
     {
-      "uri": "textures/Bernadette_baseColor.png"
+      "uri": "textures/Bernadette_baseColor.jpg"
     },
     {
-      "uri": "textures/Bernadette_specularf0.png"
+      "uri": "textures/Bernadette_specularf0.jpg"
     }
   ],
   "materials": [
