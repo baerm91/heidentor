@@ -125,7 +125,7 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
           
           // Magnifying lens effect in vertex shader
           if (uRevealActive && !uShowAlways && uLensZoom > 1.0) {
-            vec2 aspect = vec2(uViewportSize.x / uViewportSize.y, 1.0);
+            vec2 aspect = vec2(uViewportSize.y > 0.001 ? uViewportSize.x / uViewportSize.y : 1.0, 1.0);
             vec2 ndcPos = gl_Position.xy / gl_Position.w;
             vec2 dir = (ndcPos - uMouseNDC) * aspect;
             float dist = length(dir);
@@ -135,7 +135,7 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
               float normalizedDist = dist / radius;
               // Smooth transition to avoid tearing at the boundaries
               float t = smoothstep(0.0, 1.0, normalizedDist);
-              float zoom = mix(uLensZoom, 1.0, t);
+              float zoom = max(mix(uLensZoom, 1.0, t), 0.001);
               
               // Scale the NDC position relative to the mouse cursor
               vec2 newNdcPos = uMouseNDC + (ndcPos - uMouseNDC) / zoom;
@@ -178,33 +178,46 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
               vec3 portalTint = vec3(1.0, 0.72, 0.32);
               gl_FragColor.rgb = mix(gl_FragColor.rgb, portalTint, 0.26 * uPortalTint);
             } else if (uRevealActive) {
-              // 3D spatial reveal
+              // 3D spatial reveal with shimmer wave
               float reveal3D = 0.0;
+              float dist3D = 0.0;
+              float currentWorldRadius = uWorldRadius;
+              float currentWorldSoftness = max(uWorldSoftness, 0.0001);
               if (uRevealHasHit) {
-                float dist3D = distance(vWorldPosition, uRevealCenterWorld);
-                reveal3D = 1.0 - smoothstep(uWorldRadius - uWorldSoftness, uWorldRadius + uWorldSoftness, dist3D);
+                dist3D = distance(vWorldPosition, uRevealCenterWorld);
+                float angle3D = atan(vWorldPosition.z - uRevealCenterWorld.z, vWorldPosition.x - uRevealCenterWorld.x);
+                float wave3D = 0.02 * sin(angle3D * 12.0 + uTime * 4.0);
+                currentWorldRadius = uWorldRadius * (1.0 + wave3D);
+                reveal3D = 1.0 - smoothstep(currentWorldRadius - currentWorldSoftness, currentWorldRadius + currentWorldSoftness, dist3D);
               }
 
-              // 2D screen-space reveal (Lupeneffekt)
+              // 2D screen-space reveal (Lupeneffekt) with shimmer wave
               vec2 mousePixel = (uMouseNDC * 0.5 + 0.5) * uViewportSize;
-              float dist2D = distance(gl_FragCoord.xy, mousePixel);
-              float radius2D = uRevealRadius * uViewportSize.y * 0.5;
+              vec2 dir2D = gl_FragCoord.xy - mousePixel;
+              float angle2D = atan(dir2D.y, dir2D.x);
+              float wave2D = 0.015 * sin(angle2D * 16.0 + uTime * 4.5);
+              float dist2D = length(dir2D);
+              float radius2D = uRevealRadius * uViewportSize.y * 0.5 * (1.0 + wave2D);
               float softness2D = uRevealSoftness * uViewportSize.y * 0.5;
-              float reveal2D = 1.0 - smoothstep(radius2D - softness2D, radius2D + softness2D, dist2D);
+              float currentSoftness2D = max(softness2D, 0.001);
+              float reveal2D = 1.0 - smoothstep(radius2D - currentSoftness2D, radius2D + currentSoftness2D, dist2D);
 
               // Combined reveal
               float finalReveal = max(reveal3D, reveal2D);
 
-              // Edge highlight
+              // Edge highlight with pulsating golden glow
               float edge3D = 0.0;
               if (uRevealHasHit) {
-                edge3D = smoothstep(uWorldRadius - uWorldSoftness * 2.0, uWorldRadius, distance(vWorldPosition, uRevealCenterWorld)) * reveal3D;
+                edge3D = smoothstep(currentWorldRadius - currentWorldSoftness * 2.0, currentWorldRadius, dist3D) * reveal3D;
               }
-              float edge2D = smoothstep(radius2D - softness2D * 2.0, radius2D, dist2D) * reveal2D;
+              float edge2D = smoothstep(radius2D - currentSoftness2D * 2.0, radius2D, dist2D) * reveal2D;
               float finalEdge = max(edge3D, edge2D);
 
+              float pulse = 0.5 + 0.5 * sin(uTime * 3.5);
+              float edgeGlow = finalEdge * (1.0 + 0.38 * pulse);
+
               vec3 portalTint = vec3(1.0, 0.72, 0.32);
-              gl_FragColor.rgb = mix(gl_FragColor.rgb * 1.12, portalTint, 0.20 * finalReveal + 0.35 * finalEdge);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb * 1.12, portalTint, 0.20 * finalReveal + 0.45 * edgeGlow);
               gl_FragColor.a *= finalReveal;
             } else {
               discard;
@@ -217,19 +230,27 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
             `#include <dithering_fragment>
             gl_FragColor.a = uOpacityRuin; // Set ruin opacity
             if (uRevealActive) {
-              // 3D spatial cutout
+              // 3D spatial cutout with same shimmer wave
               float cutout3D = 0.0;
               if (uRevealHasHit) {
                 float dist3D = distance(vWorldPosition, uRevealCenterWorld);
-                cutout3D = 1.0 - smoothstep(uWorldRadius - uWorldSoftness, uWorldRadius + uWorldSoftness, dist3D);
+                float angle3D = atan(vWorldPosition.z - uRevealCenterWorld.z, vWorldPosition.x - uRevealCenterWorld.x);
+                float wave3D = 0.02 * sin(angle3D * 12.0 + uTime * 4.0);
+                float currentWorldRadius = uWorldRadius * (1.0 + wave3D);
+                float currentWorldSoftness = max(uWorldSoftness, 0.0001);
+                cutout3D = 1.0 - smoothstep(currentWorldRadius - currentWorldSoftness, currentWorldRadius + currentWorldSoftness, dist3D);
               }
 
-              // 2D screen-space cutout (Lupeneffekt)
+              // 2D screen-space cutout with same shimmer wave
               vec2 mousePixel = (uMouseNDC * 0.5 + 0.5) * uViewportSize;
-              float dist2D = distance(gl_FragCoord.xy, mousePixel);
-              float radius2D = uRevealRadius * uViewportSize.y * 0.5;
+              vec2 dir2D = gl_FragCoord.xy - mousePixel;
+              float angle2D = atan(dir2D.y, dir2D.x);
+              float wave2D = 0.015 * sin(angle2D * 16.0 + uTime * 4.5);
+              float dist2D = length(dir2D);
+              float radius2D = uRevealRadius * uViewportSize.y * 0.5 * (1.0 + wave2D);
               float softness2D = uRevealSoftness * uViewportSize.y * 0.5;
-              float cutout2D = 1.0 - smoothstep(radius2D - softness2D, radius2D + softness2D, dist2D);
+              float currentSoftness2D = max(softness2D, 0.001);
+              float cutout2D = 1.0 - smoothstep(radius2D - currentSoftness2D, radius2D + currentSoftness2D, dist2D);
 
               // Combined cutout
               float finalCutout = max(cutout3D, cutout2D);
@@ -238,19 +259,6 @@ export function setupRevealMaterials(model, isReconstruction, revealUniforms) {
             }
             if (gl_FragColor.a < 0.01) discard;`
           );
-        }
-
-        // Diagnostic verification
-        if (shader.vertexShader.indexOf('vWorldPosition') !== -1) {
-          console.log(`[Shader Check] Vertex replacement succeeded for ${isReconstruction ? "reconstruction" : "ruin"} material:`, mat.name || mat.uuid);
-        } else {
-          console.error(`[Shader Check] Vertex replacement FAILED for ${isReconstruction ? "reconstruction" : "ruin"} material:`, mat.name || mat.uuid);
-        }
-
-        if (shader.fragmentShader.indexOf('uRevealActive') !== -1) {
-          console.log(`[Shader Check] Fragment replacement succeeded for ${isReconstruction ? "reconstruction" : "ruin"} material:`, mat.name || mat.uuid);
-        } else {
-          console.error(`[Shader Check] Fragment replacement FAILED for ${isReconstruction ? "reconstruction" : "ruin"} material:`, mat.name || mat.uuid);
         }
       };
     });

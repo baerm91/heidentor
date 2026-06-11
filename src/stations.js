@@ -67,7 +67,48 @@ export const normalizeStations = (stations) => {
     videoWidth: typeof station.videoWidth === 'number' ? station.videoWidth : 28,
     videoHeight: typeof station.videoHeight === 'number' ? station.videoHeight : 18,
     textLayer: station.textLayer ?? "front",
-    milkyBg: !!station.milkyBg
+    milkyBg: !!station.milkyBg,
+    lightIntensity: typeof station.lightIntensity === 'number' ? station.lightIntensity : 1.0,
+    shadowDiffuse: typeof station.shadowDiffuse === 'number' ? station.shadowDiffuse : 1.0,
+    lightHemiEnabled: typeof station.lightHemiEnabled === 'boolean' ? station.lightHemiEnabled : true,
+    lightKeyEnabled: typeof station.lightKeyEnabled === 'boolean' ? station.lightKeyEnabled : true,
+    lightKeyFixedToCamera: !!station.lightKeyFixedToCamera,
+    lightKeyPos: station.lightKeyPos ? {
+      x: typeof station.lightKeyPos.x === 'number' ? station.lightKeyPos.x : 8,
+      y: typeof station.lightKeyPos.y === 'number' ? station.lightKeyPos.y : 16,
+      z: typeof station.lightKeyPos.z === 'number' ? station.lightKeyPos.z : 10
+    } : { x: 8, y: 16, z: 10 },
+    lightFillEnabled: typeof station.lightFillEnabled === 'boolean' ? station.lightFillEnabled : true,
+    lightFillFixedToCamera: !!station.lightFillFixedToCamera,
+    lightFillPos: station.lightFillPos ? {
+      x: typeof station.lightFillPos.x === 'number' ? station.lightFillPos.x : -8,
+      y: typeof station.lightFillPos.y === 'number' ? station.lightFillPos.y : 12,
+      z: typeof station.lightFillPos.z === 'number' ? station.lightFillPos.z : -10
+    } : { x: -8, y: 12, z: -10 },
+    lightSpotEnabled: typeof station.lightSpotEnabled === 'boolean' ? station.lightSpotEnabled : true,
+    lightSpotFixedToCamera: !!station.lightSpotFixedToCamera,
+    lightSpotPos: station.lightSpotPos ? {
+      x: typeof station.lightSpotPos.x === 'number' ? station.lightSpotPos.x : 0,
+      y: typeof station.lightSpotPos.y === 'number' ? station.lightSpotPos.y : 15,
+      z: typeof station.lightSpotPos.z === 'number' ? station.lightSpotPos.z : 0
+    } : { x: 0, y: 15, z: 0 },
+    images: Array.isArray(station.images) ? station.images.slice(0, 3).concat(
+      Array(Math.max(0, 3 - station.images.length)).fill(null)
+    ).map((img, idx) => {
+      const fallback = img || {};
+      return {
+        url: fallback.url ?? "",
+        posX: typeof fallback.posX === 'number' ? fallback.posX : 0,
+        posY: typeof fallback.posY === 'number' ? fallback.posY : 3.5,
+        posZ: typeof fallback.posZ === 'number' ? fallback.posZ : 0,
+        scale: typeof fallback.scale === 'number' ? fallback.scale : 1.0,
+        fixToCamera: !!fallback.fixToCamera
+      };
+    }) : [
+      { url: "", posX: 0, posY: 3.5, posZ: 0, scale: 1.0, fixToCamera: false },
+      { url: "", posX: 0, posY: 3.5, posZ: 0, scale: 1.0, fixToCamera: false },
+      { url: "", posX: 0, posY: 3.5, posZ: 0, scale: 1.0, fixToCamera: false }
+    ]
   }));
 };
 

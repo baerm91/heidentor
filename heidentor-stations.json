@@ -48,7 +48,35 @@
       "videoWidth": 28,
       "videoHeight": 18,
       "textLayer": "behind",
-      "milkyBg": false
+      "milkyBg": false,
+      "lightIntensity": 1,
+      "shadowDiffuse": 1,
+      "images": [
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        }
+      ]
     },
     {
       "id": "station_1",
@@ -78,7 +106,35 @@
       "videoWidth": 28,
       "videoHeight": 18,
       "textLayer": "behind",
-      "milkyBg": false
+      "milkyBg": false,
+      "lightIntensity": 1,
+      "shadowDiffuse": 1,
+      "images": [
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        }
+      ]
     },
     {
       "id": "station_2",
@@ -117,7 +173,35 @@
       "videoWidth": 32,
       "videoHeight": 18,
       "textLayer": "front",
-      "milkyBg": true
+      "milkyBg": true,
+      "lightIntensity": 1,
+      "shadowDiffuse": 1,
+      "images": [
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        }
+      ]
     },
     {
       "id": "station_3",
@@ -156,7 +240,35 @@
       "videoWidth": 28,
       "videoHeight": 18,
       "textLayer": "behind",
-      "milkyBg": false
+      "milkyBg": false,
+      "lightIntensity": 1,
+      "shadowDiffuse": 1,
+      "images": [
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        },
+        {
+          "url": "",
+          "posX": 0,
+          "posY": 3.5,
+          "posZ": 0,
+          "scale": 1,
+          "fixToCamera": false
+        }
+      ]
     }
   ]
 }

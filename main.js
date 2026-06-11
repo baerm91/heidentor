@@ -5,53 +5,22 @@ import gsap from 'gsap';
 import { createSkyDome, createGrassPlane, createLighting } from './src/environment.js';
 import { loadModels, setupRevealMaterials } from './src/models.js';
 import { computeAlignmentMatrix, saveAlignment, loadAlignment, clearAlignment, matrixToAlignment, alignmentToMatrix } from './src/alignment.js';
-import { loadDraftStations, loadStationConfig, saveDraftStations } from './src/stations.js';
+import { loadDraftStations, loadStationConfig } from './src/stations.js';
 
-
-// ─── STATE BRIDGE FOR REACT ──────────────────────────
-window.appState = {
-  mode: 'loading',       // 'loading', 'aligning', 'reveal'
-  alignStep: 0,          // 0 to 6 clicked points
-  alignTarget: 'ruin',   // 'ruin', 'recon', 'done'
-  viewMode: 'reveal',    // 'ruin', 'recon', 'portal', 'reveal'
-  revealRadius: 0.26,
-  revealSoftness: 0.05,
-  lensZoom: 1.0,
-
-  // Scrolling landing page parameters
-  stationMode: 'scroll',       // 'scroll', 'editor'
-  stations: [],
-  alignment: null,
-  currentStationIndex: 0,
-  scrollProgress: 0,
-  hasUserManipulatedCamera: false,
-  introPhase: 'idle',       // 'idle', 'title', 'model', 'text', 'done'
-  hasIntroPlayed: false,
-
-  // Event handlers populated by Three.js
-  realign: null,
-  resetAlignment: null,
-  skipAlignment: null,
-  setViewMode: null,
-  setRevealRadius: null,
-  setRevealSoftness: null,
-  setLensZoom: null,
-
-  setStationMode: null,
-  updateScrollProgress: null,
-  saveStations: null,
-  getAlignment: null,
-  saveAlignmentConfig: null,
-
-  // Callback set by React component to trigger re-renders
-  onStateChange: null,
-
-  // State update helper
-  update(fields) {
-    Object.assign(this, fields);
-    if (this.onStateChange) this.onStateChange({ ...this });
-  }
-};
+import { ctx } from './src/three/context.js';
+import { setupStateBridge } from './src/three/stateBridge.js';
+import { initStationImages, updateStationImages } from './src/three/imagePlanes.js';
+import {
+  getPortalTransitionConfig,
+  computeTransitionState,
+  isPortalRevealTransition,
+  applyTransitionState,
+  startPortalTransition,
+  cancelPortalTransition,
+  configureReconstructionDepth
+} from './src/three/portalTransition.js';
+import { playInitialIntro } from './src/three/introSequence.js';
+import { animate } from './src/three/renderLoop.js';
 
 // ─── DOM & CANVAS ─────────────────────────────────────
 const canvas = document.getElementById('scene-canvas');
@@ -65,15 +34,14 @@ let loadingComplete = false;
 
 function renderLoadingProgress(progress) {
   const pct = Math.round(THREE.MathUtils.clamp(progress, 0, 1) * 100);
-  loadingBar.style.width = pct + '%';
-  loadingPercent.textContent = pct + '%';
+  if (loadingBar) loadingBar.style.width = pct + '%';
+  if (loadingPercent) loadingPercent.textContent = pct + '%';
 }
 
 const loadingProgressTimer = window.setInterval(() => {
   if (!loadingComplete) {
     targetLoadingProgress = Math.min(targetLoadingProgress + 0.006, 0.92);
   }
-
   displayedLoadingProgress = THREE.MathUtils.lerp(displayedLoadingProgress, targetLoadingProgress, 0.12);
   renderLoadingProgress(displayedLoadingProgress);
 }, 100);
@@ -108,7 +76,6 @@ try {
 
 // ─── SCENE & CAMERA ──────────────────────────────────
 const scene = new THREE.Scene();
-// Omit scene.background to allow transparency to CSS background
 scene.fog = new THREE.FogExp2(0x010101, 0.019);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -120,9 +87,8 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.35;
-// controls.maxPolarAngle = Math.PI / 2.05; // Allow camera to rotate below pedestal/ground
-controls.minDistance = 0.5;                // Allow flying close
-controls.maxDistance = 75;                 // Allow zooming out
+controls.minDistance = 0.5;
+controls.maxDistance = 75;
 controls.target.set(0, 3.5, 0);
 
 let autoRotateTimer = null;
@@ -131,7 +97,7 @@ function pauseAutoRotate() {
   controls.autoRotate = false;
   clearTimeout(autoRotateTimer);
   autoRotateTimer = setTimeout(() => {
-    if (window.appState.mode === 'reveal') {
+    if (ctx.isRevealMode) {
       controls.autoRotate = true;
     }
   }, 5000);
@@ -139,93 +105,52 @@ function pauseAutoRotate() {
 
 canvas.addEventListener('pointerdown', () => {
   pauseAutoRotate();
-  if (window.appState.scrollProgress >= 0.98 && !window.appState.hasUserManipulatedCamera) {
-    window.appState.update({ hasUserManipulatedCamera: true });
+  if (controls.enabled && !window.appState?.hasUserManipulatedCamera) {
+    window.appState?.update({ hasUserManipulatedCamera: true });
   }
 });
 
 canvas.addEventListener('wheel', () => {
   pauseAutoRotate();
-  if (window.appState.scrollProgress >= 0.98 && !window.appState.hasUserManipulatedCamera) {
-    window.appState.update({ hasUserManipulatedCamera: true });
+  if (controls.enabled && !window.appState?.hasUserManipulatedCamera) {
+    window.appState?.update({ hasUserManipulatedCamera: true });
   }
 });
 
-// ─── ENVIRONMENT & LIGHTING ──────────────────────────
-const skyMaterial = createSkyDome(scene);
-const grassObj = createGrassPlane(scene);
-createLighting(scene);
+// Bind to context
+ctx.canvas = canvas;
+ctx.renderer = renderer;
+ctx.scene = scene;
+ctx.camera = camera;
+ctx.controls = controls;
 
-// ─── REVEAL UNIFORMS ─────────────────────────────────
-const revealUniforms = {
-  uMouseNDC: { value: new THREE.Vector2(9999, 9999) },
-  uCameraWorldPos: { value: new THREE.Vector3(0, 0, 0) },
-  uRayDirection: { value: new THREE.Vector3(0, 0, 1) },
-  uRevealCenterWorld: { value: new THREE.Vector3(9999, 9999, 9999) },
-  uRevealHasHit: { value: false },
-  uWorldRadius: { value: 0.0 },
-  uWorldSoftness: { value: 0.0 },
-  uViewportSize: { value: new THREE.Vector2() },
-  uRevealRadius: { value: 0.26 },
-  uRevealSoftness: { value: 0.05 },
-  uRevealActive: { value: false },
-  uShowAlways: { value: false },
-  uLensZoom: { value: 1.0 },
-  uTime: { value: 0 },
-  uOpacityRuin: { value: 1.0 },
-  uOpacityRecon: { value: 0.0 },
-  uPortalTint: { value: 0.0 }
-};
-renderer.getDrawingBufferSize(revealUniforms.uViewportSize.value);
+ctx.skyMaterial = createSkyDome(scene);
+ctx.grassObj = createGrassPlane(scene);
+ctx.lights = createLighting(scene);
+scene.add(ctx.lights.keyLight.target);
+scene.add(ctx.lights.fillLight.target);
 
-const raycaster = new THREE.Raycaster();
-const mouseTarget = new THREE.Vector2(0, 0); // Start at center until first movement
-const portalMouseTarget = new THREE.Vector2(0, 0);
-const blendedRevealTarget = new THREE.Vector2(0, 0);
-let isRevealMode = false;
-let isMouseOutside = true;
-let hasMouseMoved = false;
+renderer.getDrawingBufferSize(ctx.revealUniforms.uViewportSize.value);
 
-// ─── SCROLL INTERPOLATION STATE ───────────────────────
-const targetCameraPos = new THREE.Vector3(0, 10, 22);
-const targetCameraTarget = new THREE.Vector3(0, 3.5, 0);
-let targetRevealRadius = 0.26;
-let targetRevealSoftness = 0.05;
-let targetOpacityRuin = 1.0;
-let targetOpacityRecon = 0.0;
-let targetPortalTint = 0.0;
-let targetRevealActive = false;
-let targetShowAlways = false;
-let targetRevealFollowsMouse = false;
-let targetRevealMouseBlend = 0;
-const introModelOpacity = { value: 1 };
+// Bind actions
+ctx.actions.startAlignmentMode = startAlignmentMode;
+ctx.actions.handleAlignClick = handleAlignClick;
+ctx.actions.completeAlignment = completeAlignment;
+ctx.actions.enterRevealMode = enterRevealMode;
+ctx.actions.updateStationImages = updateStationImages;
+ctx.actions.updateScrollProgress = updateScrollProgress;
+ctx.actions.applyScrollProgress = applyScrollProgress;
+ctx.actions.clearMarkers = clearMarkers;
+ctx.actions.clearLines = clearLines;
+ctx.actions.getPortalTransitionConfig = getPortalTransitionConfig;
+ctx.actions.computeTransitionState = computeTransitionState;
+ctx.actions.isPortalRevealTransition = isPortalRevealTransition;
+ctx.actions.applyTransitionState = applyTransitionState;
+ctx.actions.startPortalTransition = startPortalTransition;
+ctx.actions.cancelPortalTransition = cancelPortalTransition;
+ctx.actions.playInitialIntro = playInitialIntro;
 
-// Scroll section auto-transition variables
-let lastIntervalIndex = 0;
-let lastTargetP = 0.0;
-const transitionProgress = { value: 0.0 };
-const portalTransitionProgress = { value: 0.0 };
-let scrollTransitionTween = null;
-let portalTransitionTween = null;
-let activePortalTransition = null;
-let previousScrollProgress = 0;
-
-// ─── ALIGNMENT STATE ──────────────────────────────────
-let ruinModel = null;
-let reconModel = null;
-let ruinOffsetY = 0;
-let reconOffsetY = 0;
-let isModelAligned = false;
-let revealHitMeshes = [];
-
-const alignPoints = {
-  ruin: [],      // Local Vector3s
-  recon: [],     // Local Vector3s
-  ruinWorld: [], // World Vector3s for markers
-  reconWorld: [] // World Vector3s for markers
-};
-const alignMarkers = [];
-const alignLines = [];
+initStationImages();
 
 // ─── LOADING & INITIALIZATION ─────────────────────────
 async function init() {
@@ -234,98 +159,79 @@ async function init() {
       targetLoadingProgress = Math.max(targetLoadingProgress, progress);
     });
 
-    ruinModel = result.ruinModel;
-    reconModel = result.reconModel;
-
-    // Log scales, positions, and sizes
-    const ruinBox = new THREE.Box3().setFromObject(ruinModel);
-    const ruinSize = ruinBox.getSize(new THREE.Vector3());
-    const reconBox = new THREE.Box3().setFromObject(reconModel);
-    const reconSize = reconBox.getSize(new THREE.Vector3());
-    console.log("Ruin wrapper scale:", ruinModel.scale.x.toFixed(4), "pos:", ruinModel.position.x.toFixed(2), ruinModel.position.y.toFixed(2), ruinModel.position.z.toFixed(2), "size:", ruinSize.x.toFixed(2), ruinSize.y.toFixed(2), ruinSize.z.toFixed(2));
-    console.log("Recon wrapper scale:", reconModel.scale.x.toFixed(4), "pos:", reconModel.position.x.toFixed(2), reconModel.position.y.toFixed(2), reconModel.position.z.toFixed(2), "size:", reconSize.x.toFixed(2), reconSize.y.toFixed(2), reconSize.z.toFixed(2));
+    ctx.ruinModel = result.ruinModel;
+    ctx.reconModel = result.reconModel;
 
     // Capture artist-defined normalized height offsets
-    ruinOffsetY = ruinModel.position.y;
-    reconOffsetY = reconModel.position.y;
+    ctx.ruinOffsetY = ctx.ruinModel.position.y;
+    ctx.reconOffsetY = ctx.reconModel.position.y;
 
     // Enable shadows on models
-    ruinModel.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-    reconModel.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-
-    window.debug = {
-      ruinModel,
-      reconModel,
-      THREE,
-      scene,
-      revealUniforms
-    };
+    ctx.ruinModel.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+    ctx.reconModel.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
 
     // Setup reveal materials & inject uniforms
-    setupRevealMaterials(ruinModel, false, revealUniforms);
-    setupRevealMaterials(reconModel, true, revealUniforms);
-    ruinModel.visible = false;
-    reconModel.visible = false;
-    revealHitMeshes = collectRevealHitMeshes(reconModel);
-    console.log("revealHitMeshes count:", revealHitMeshes.length);
-    revealHitMeshes.forEach((m, idx) => console.log(`Mesh ${idx}:`, m.name, "geometry:", m.geometry.type));
+    setupRevealMaterials(ctx.ruinModel, false, ctx.revealUniforms);
+    setupRevealMaterials(ctx.reconModel, true, ctx.revealUniforms);
 
-    // Bind shared state event handlers
+    // Warm up/pre-compile shaders and upload textures to the GPU during the loading phase
+    // to prevent any stutter/lag when the models first become visible.
+    ctx.ruinModel.visible = true;
+    ctx.reconModel.visible = true;
+    renderer.compile(scene, camera);
+    ctx.ruinModel.visible = false;
+    ctx.reconModel.visible = false;
+    ctx.revealHitMeshes = collectRevealHitMeshes(ctx.reconModel);
+
+    // Bind state bridge
     setupStateBridge();
 
-    // Load stations from localStorage or the editable JSON file.
-    const jsonConfig = await loadStationConfig();
+    // Load stations from localStorage or the editable JSON file
+    const config = await loadStationConfig();
     const isEditPage = window.location.pathname === '/edits';
-    const initialStations = isEditPage ? (loadDraftStations() ?? jsonConfig.stations) : jsonConfig.stations;
+    const initialStations = isEditPage ? (loadDraftStations() ?? config.stations) : config.stations;
 
     window.appState.update({
       stations: initialStations,
-      alignment: jsonConfig.alignment
+      alignment: config.alignment
     });
 
-    // Check for saved alignment
-    const savedMatrix = loadAlignment(jsonConfig.alignment);
+    // Check for saved alignment with default config alignment as fallback
+    const savedMatrix = loadAlignment(config.alignment);
     if (savedMatrix) {
-      reconModel.applyMatrix4(savedMatrix);
-      reconModel.updateMatrixWorld(true);
-      isModelAligned = true;
+      ctx.reconModel.applyMatrix4(savedMatrix);
+      ctx.reconModel.updateMatrixWorld(true);
+      ctx.isModelAligned = true;
       window.appState.update({ alignment: matrixToAlignment(savedMatrix) });
       finishLoading(false);
     } else {
       finishLoading(true);
     }
-  } catch (err) {
-    console.error('Failed to load models:', err);
-    loadingComplete = true;
-    window.clearInterval(loadingProgressTimer);
-    loadingPercent.textContent = 'Fehler beim Laden!';
+  } catch (error) {
+    console.error("Initialization failed:", error);
+    clearInterval(loadingProgressTimer);
+    if (loadingPercent) {
+      loadingPercent.innerHTML = `<span style="color: #ff5252; font-weight: 600;">Fehler beim Laden der 3D-Modelle: ${error.message}</span>`;
+    }
   }
 }
 
 function finishLoading(showAlignment) {
   loadingComplete = true;
-  targetLoadingProgress = 1;
-  displayedLoadingProgress = 1;
-  window.clearInterval(loadingProgressTimer);
-  renderLoadingProgress(1);
+  clearInterval(loadingProgressTimer);
+  renderLoadingProgress(1.0);
 
-  gsap.to(loadingScreen, {
-    opacity: 0,
-    duration: 0.8,
-    delay: 0.3,
-    ease: 'power2.out',
-    onComplete: () => {
-      loadingScreen.style.display = 'none';
+  setTimeout(() => {
+    if (loadingScreen) {
+      loadingScreen.style.opacity = '0';
+      loadingScreen.style.pointerEvents = 'none';
     }
-  });
-
-  gsap.delayedCall(0.5, () => {
     if (showAlignment) {
       startAlignmentMode();
     } else {
       enterRevealMode();
     }
-  });
+  }, 400);
 }
 
 function collectRevealHitMeshes(model) {
@@ -335,556 +241,367 @@ function collectRevealHitMeshes(model) {
 
   model.traverse((child) => {
     if (!child.isMesh) return;
-
     const box = new THREE.Box3().setFromObject(child);
     const size = box.getSize(new THREE.Vector3());
     const relativeHeight = size.y / modelHeight;
     const bottomOffset = (box.max.y - modelBox.min.y) / modelHeight;
 
-    // Skip broad, nearly flat base/floor meshes so the reveal locks onto the monument volume.
     if (relativeHeight < 0.04 || bottomOffset < 0.08) {
       return;
     }
-
     pickMeshes.push(child);
   });
-
   return pickMeshes;
 }
 
-function configureReconstructionDepth(useSceneDepth) {
-  if (!reconModel) return;
 
-  reconModel.renderOrder = useSceneDepth ? 0 : 10;
-  reconModel.traverse((child) => {
-    if (!child.isMesh) return;
-
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((mat) => {
-      mat.depthTest = true;
-      mat.depthWrite = true;
-      mat.needsUpdate = true;
-    });
+// ─── ALIGNMENT MODE ──────────────────────────────────
+function startAlignmentMode() {
+  window.appState.update({
+    mode: 'aligning',
+    alignStep: 0,
+    alignTarget: 'ruin'
   });
+
+  ctx.isRevealMode = false;
+  controls.autoRotate = false;
+
+  ctx.ruinModel.position.set(0, ctx.ruinOffsetY, 0);
+  ctx.reconModel.position.set(0, ctx.reconOffsetY, 0);
+
+  ctx.ruinModel.visible = true;
+  ctx.reconModel.visible = false;
+
+  ctx.revealUniforms.uRevealActive.value = false;
+  ctx.revealUniforms.uShowAlways.value = true;
+
+  controls.target.set(0, 3.5, 0);
+  camera.position.set(10, 7.5, 14);
+
+  window.appState.resetAlignment();
 }
 
-// ─── STATE BRIDGE ACTIONS ────────────────────────────
-function setupStateBridge() {
-  window.appState.realign = () => {
-    clearAlignment();
-    location.reload();
-  };
+function handleAlignClick(event) {
+  if (window.appState.mode !== 'aligning') return;
 
-  window.appState.resetAlignment = () => {
-    alignPoints.ruin = [];
-    alignPoints.recon = [];
-    alignPoints.ruinWorld = [];
-    alignPoints.reconWorld = [];
-    clearMarkers();
-    clearLines();
-    isModelAligned = false;
+  const rect = canvas.getBoundingClientRect();
+  const mx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  const my = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    // Position both models back to center and reset visibility
-    ruinModel.position.set(0, ruinOffsetY, 0);
-    reconModel.position.set(0, reconOffsetY, 0);
-    ruinModel.visible = true;
-    reconModel.visible = false;
+  ctx.raycaster.setFromCamera(new THREE.Vector2(mx, my), camera);
 
-    window.appState.update({
-      alignStep: 0,
-      alignTarget: 'ruin'
-    });
-  };
+  const isRuinTurn = window.appState.alignTarget === 'ruin';
+  const targetModel = isRuinTurn ? ctx.ruinModel : ctx.reconModel;
+  const intersects = ctx.raycaster.intersectObject(targetModel, true);
 
-  window.appState.skipAlignment = () => {
-    clearMarkers();
-    clearLines();
-    isModelAligned = false;
-    ruinModel.position.set(0, ruinOffsetY, 0);
-    reconModel.position.set(0, reconOffsetY, 0);
-    enterRevealMode();
-  };
+  if (intersects.length === 0) return;
 
-  window.appState.setViewMode = (mode) => {
-    window.appState.update({ viewMode: mode });
-    let opRuin = 1.0;
-    let opRecon = 0.0;
-    let portalTint = 0.0;
-    let revActive = false;
-    let shAlways = false;
-    let followsMouse = false;
-    let mouseBlend = 0;
+  const worldPoint = intersects[0].point.clone();
+  const localPoint = targetModel.worldToLocal(worldPoint.clone());
 
-    if (mode === 'ruin') {
-      if (ruinModel) ruinModel.visible = true;
-      if (reconModel) reconModel.visible = false;
-      configureReconstructionDepth(true);
-      opRuin = 1.0;
-      opRecon = 0.0;
-      revActive = false;
-      shAlways = false;
-      revealUniforms.uRevealHasHit.value = false;
-    } else if (mode === 'recon') {
-      if (ruinModel) ruinModel.visible = false;
-      if (reconModel) reconModel.visible = true;
-      configureReconstructionDepth(true);
-      opRuin = 0.0;
-      opRecon = 1.0;
-      portalTint = 0.0;
-      revActive = false;
-      shAlways = true;
-      revealUniforms.uRevealHasHit.value = false;
-    } else if (mode === 'portal') {
-      if (ruinModel) ruinModel.visible = true;
-      if (reconModel) reconModel.visible = true;
-      configureReconstructionDepth(false);
-      opRuin = 0.0;
-      opRecon = 1.0;
-      portalTint = 1.0;
-      revActive = false;
-      shAlways = true;
-      followsMouse = false;
-      revealUniforms.uMouseNDC.value.set(0, 0);
-      revealUniforms.uRevealHasHit.value = false;
+  if (isRuinTurn) {
+    ctx.alignPoints.ruin.push(localPoint);
+    ctx.alignPoints.ruinWorld.push(worldPoint);
+    addMarker(worldPoint, 'ruin');
+
+    const nextStep = window.appState.alignStep + 1;
+    if (nextStep === 3) {
+      window.appState.update({
+        alignStep: nextStep,
+        alignTarget: 'recon'
+      });
+      ctx.ruinModel.visible = false;
+      ctx.alignMarkers.forEach(m => { if (m.userData.type === 'ruin') m.visible = false; });
+      ctx.reconModel.visible = true;
     } else {
-      if (ruinModel) ruinModel.visible = true;
-      if (reconModel) reconModel.visible = true;
-      configureReconstructionDepth(false);
-      opRuin = 1.0;
-      opRecon = 1.0;
-      portalTint = 1.0;
-      revActive = true;
-      shAlways = false;
-      followsMouse = true;
-      mouseBlend = 1;
+      window.appState.update({
+        alignStep: nextStep,
+        alignTarget: 'ruin'
+      });
     }
+  } else {
+    ctx.alignPoints.recon.push(localPoint);
+    ctx.alignPoints.reconWorld.push(worldPoint);
+    addMarker(worldPoint, 'recon');
 
-    targetOpacityRuin = opRuin;
-    targetOpacityRecon = opRecon;
-    targetPortalTint = portalTint;
-    targetRevealActive = revActive;
-    targetShowAlways = shAlways;
-    targetRevealFollowsMouse = followsMouse;
-    targetRevealMouseBlend = mouseBlend;
-
-    revealUniforms.uOpacityRuin.value = opRuin;
-    revealUniforms.uOpacityRecon.value = opRecon;
-    revealUniforms.uPortalTint.value = portalTint;
-    revealUniforms.uRevealActive.value = revActive;
-    revealUniforms.uShowAlways.value = shAlways;
-  };
-
-  window.appState.setRevealRadius = (r) => {
-    revealUniforms.uRevealRadius.value = r;
-    targetRevealRadius = r;
-    window.appState.update({ revealRadius: r });
-  };
-
-  window.appState.setRevealSoftness = (s) => {
-    revealUniforms.uRevealSoftness.value = s;
-    targetRevealSoftness = s;
-    window.appState.update({ revealSoftness: s });
-  };
-
-  window.appState.setLensZoom = (z) => {
-    revealUniforms.uLensZoom.value = z;
-    window.appState.update({ lensZoom: z });
-  };
-
-  window.appState.setStationMode = (mode) => {
-    window.appState.update({ stationMode: mode });
-    if (mode === 'editor') {
-      controls.enabled = true;
-      controls.autoRotate = false;
+    const nextStep = window.appState.alignStep + 1;
+    if (nextStep === 6) {
+      window.appState.update({
+        alignStep: nextStep,
+        alignTarget: 'done'
+      });
+      setTimeout(completeAlignment, 700);
     } else {
-      // Re-trigger scroll camera positions (which sets controls.enabled correctly)
-      updateScrollProgress(window.appState.scrollProgress);
+      window.appState.update({
+        alignStep: nextStep,
+        alignTarget: 'recon'
+      });
     }
-  };
+  }
+}
 
-  window.appState.updateScrollProgress = (progress) => {
-    updateScrollProgress(progress);
-  };
+function addMarker(worldPos, type) {
+  const geo = new THREE.SphereGeometry(0.12, 16, 16);
+  const color = type === 'ruin' ? 0xffa726 : 0x6ef0f5;
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.9
+  });
+  const sphere = new THREE.Mesh(geo, mat);
+  sphere.renderOrder = 999;
+  sphere.position.copy(worldPos);
+  sphere.userData = { type };
+  scene.add(sphere);
+  ctx.alignMarkers.push(sphere);
+}
 
-  window.appState.saveStations = (newStations) => {
-    saveDraftStations(newStations);
-    window.appState.update({ stations: newStations });
-    updateScrollProgress(window.appState.scrollProgress);
-  };
+function clearMarkers() {
+  ctx.alignMarkers.forEach(m => {
+    scene.remove(m);
+    m.geometry.dispose();
+    m.material.dispose();
+  });
+  ctx.alignMarkers.length = 0;
+}
 
-  window.appState.getAlignment = () => window.appState.alignment;
+function clearLines() {
+  ctx.alignLines.forEach(l => {
+    scene.remove(l);
+    l.geometry.dispose();
+    l.material.dispose();
+  });
+  ctx.alignLines.length = 0;
+}
 
-  window.appState.saveAlignmentConfig = (alignment) => {
-    const matrix = alignmentToMatrix(alignment);
-    if (!matrix) return;
+function completeAlignment() {
+  const matrix = computeAlignmentMatrix(ctx.alignPoints.reconWorld, ctx.alignPoints.ruinWorld);
 
+  if (matrix) {
+    ctx.reconModel.applyMatrix4(matrix);
+    ctx.reconModel.updateMatrixWorld(true);
     saveAlignment(matrix);
     window.appState.update({ alignment: matrixToAlignment(matrix) });
-  };
+    ctx.isModelAligned = true;
+  }
 
-  window.appState.captureCamera = () => {
-    return {
-      cameraPos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-      cameraTarget: { x: controls.target.x, y: controls.target.y, z: controls.target.z }
-    };
-  };
+  clearMarkers();
 
-  window.appState.flyToStation = (station) => {
-    gsap.killTweensOf(camera.position);
-    gsap.killTweensOf(controls.target);
-    const currentStation = window.appState.stations[window.appState.currentStationIndex] || station;
-    const transitionConfig = getPortalTransitionConfig(currentStation, station);
-    const isPortalRevealFlyTo = isPortalRevealTransition(currentStation.viewMode, station.viewMode);
-    const flyDuration = isPortalRevealFlyTo ? transitionConfig.duration : 1.2;
-    const flyEase = isPortalRevealFlyTo ? 'none' : 'power3.out';
-    
-    gsap.to(camera.position, {
-      x: station.cameraPos.x,
-      y: station.cameraPos.y,
-      z: station.cameraPos.z,
-      duration: flyDuration,
-      ease: flyEase
-    });
-    
-    gsap.to(controls.target, {
-      x: station.cameraTarget.x,
-      y: station.cameraTarget.y,
-      z: station.cameraTarget.z,
-      duration: flyDuration,
-      ease: flyEase,
-      onUpdate: () => {
-        controls.update();
-      }
-    });
+  ctx.ruinModel.visible = true;
+  ctx.reconModel.visible = true;
 
-    const transitionObj = { progress: 0 };
-    if (isPortalRevealFlyTo) {
-      applyTransitionState(computeTransitionState(
-        currentStation.viewMode,
-        station.viewMode,
-        currentStation.revealRadius,
-        currentStation.revealSoftness,
-        station.revealRadius,
-        station.revealSoftness,
-        0,
-        transitionConfig
-      ));
+  ctx.reconModel.traverse((child) => {
+    if (child.isMesh) {
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach(m => { m.opacity = 1.0; m.transparent = true; m.needsUpdate = true; });
     }
-    
-    gsap.killTweensOf(transitionObj);
-    gsap.to(transitionObj, {
-      progress: 1,
-      duration: flyDuration,
-      ease: flyEase,
-      onUpdate: () => {
-        const state = computeTransitionState(
-          currentStation.viewMode,
-          station.viewMode,
-          currentStation.revealRadius,
-          currentStation.revealSoftness,
-          station.revealRadius,
-          station.revealSoftness,
-          transitionObj.progress,
-          transitionConfig
-        );
-        applyTransitionState(state);
-      },
-      onComplete: () => {
-        window.appState.update({ 
-          viewMode: station.viewMode,
-          currentStationIndex: window.appState.stations.indexOf(station)
-        });
-      }
-    });
-  };
-}
+  });
 
-function getPortalTransitionConfig(station0 = {}, station1 = {}) {
-  const portalStation = station1?.viewMode === 'portal' ? station1 : station0;
-  const revealStation = station1?.viewMode === 'reveal' ? station1 : station0;
+  gsap.killTweensOf(camera.position);
+  gsap.killTweensOf(controls.target);
 
-  return {
-    portalRadius: portalStation.portalRadius ?? revealStation.portalRadius ?? 3.2,
-    portalSoftness: portalStation.portalSoftness ?? revealStation.portalSoftness ?? 0.2,
-    duration: portalStation.portalTransitionDuration ?? revealStation.portalTransitionDuration ?? 2.8,
-    mouseStart: revealStation.portalMouseStart ?? portalStation.portalMouseStart ?? 0.2,
-    ruinFadeEnd: portalStation.portalRuinFadeEnd ?? revealStation.portalRuinFadeEnd ?? 0.22,
-    revealRuinFadeStart: revealStation.portalRevealRuinFadeStart ?? portalStation.portalRevealRuinFadeStart ?? 0.18,
-    revealRuinFadeEnd: revealStation.portalRevealRuinFadeEnd ?? portalStation.portalRevealRuinFadeEnd ?? 0.85,
-    reconFadeStart: portalStation.portalReconFadeStart ?? revealStation.portalReconFadeStart ?? 0.08,
-    reconFadeEnd: portalStation.portalReconFadeEnd ?? revealStation.portalReconFadeEnd ?? 0.46
-  };
-}
+  ctx.revealUniforms.uRevealActive.value = true;
+  ctx.revealUniforms.uCameraWorldPos.value.copy(camera.position);
+  const modelCenter = new THREE.Vector3(0, ctx.ruinOffsetY, 0);
+  ctx.revealUniforms.uRayDirection.value.subVectors(modelCenter, camera.position).normalize();
+  ctx.revealUniforms.uRevealCenterWorld.value.copy(modelCenter);
+  ctx.revealUniforms.uRevealHasHit.value = true;
+  ctx.revealUniforms.uMouseNDC.value.set(0, 0);
+  ctx.revealUniforms.uRevealRadius.value = 0.0;
+  ctx.revealUniforms.uRevealSoftness.value = 0.15;
 
-function computeTransitionState(mode0, mode1, r0, s0, r1, s1, t, transitionConfig = {}) {
-  let opacityRuin = 1.0;
-  let opacityRecon = 0.0;
-  let portalTint = 0.0;
-  let revealActive = false;
-  let showAlways = false;
-  let revealRadius = 0.0;
-  let revealSoftness = 0.0;
-  let followsMouse = false;
-  let mouseBlend = 0;
-
-  const portalRadius0 = transitionConfig.portalRadius ?? 3.2;
-  const portalRadius1 = transitionConfig.portalRadius ?? 3.2;
-  const portalSoftness0 = transitionConfig.portalSoftness ?? 0.2;
-  const portalSoftness1 = transitionConfig.portalSoftness ?? 0.2;
-
-  if (mode0 === 'ruin' && mode1 === 'ruin') {
-    opacityRuin = 1.0;
-    opacityRecon = 0.0;
-    portalTint = 0.0;
-    revealActive = false;
-    showAlways = true;
-    revealRadius = 0.0;
-    revealSoftness = 0.0;
-  } else if (mode0 === 'recon' && mode1 === 'recon') {
-    opacityRuin = 0.0;
-    opacityRecon = 1.0;
-    portalTint = 0.0;
-    revealActive = false;
-    showAlways = true;
-    revealRadius = 0.0;
-    revealSoftness = 0.0;
-  } else if (mode0 === 'portal' && mode1 === 'portal') {
-    opacityRuin = 0.0;
-    opacityRecon = 1.0;
-    portalTint = 1.0;
-    revealActive = false;
-    showAlways = true;
-    followsMouse = false;
-    mouseBlend = 0;
-    revealRadius = 0.0;
-    revealSoftness = 0.0;
-  } else if (mode0 === 'reveal' && mode1 === 'reveal') {
-    opacityRuin = 1.0;
-    opacityRecon = 1.0;
-    portalTint = 1.0;
-    revealActive = true;
-    showAlways = false;
-    followsMouse = true;
-    mouseBlend = 1;
-    revealRadius = THREE.MathUtils.lerp(r0, r1, t);
-    revealSoftness = THREE.MathUtils.lerp(s0, s1, t);
-  } else if (mode0 === 'portal' && mode1 === 'reveal') {
-    const mouseStart = transitionConfig.mouseStart ?? 0.2;
-
-    opacityRuin = 1.0;
-    opacityRecon = 1.0;
-    portalTint = 1.0;
-    revealActive = true;
-    showAlways = false;
-    mouseBlend = THREE.MathUtils.smoothstep(t, mouseStart, 1.0);
-    followsMouse = mouseBlend > 0.95;
-    revealRadius = THREE.MathUtils.lerp(portalRadius0, r1, t);
-    revealSoftness = THREE.MathUtils.lerp(portalSoftness0, s1, t);
-  } else if (mode0 === 'reveal' && mode1 === 'portal') {
-    const mouseEnd = transitionConfig.mouseStart ?? 0.2;
-
-    opacityRuin = t >= 0.999 ? 0.0 : 1.0;
-    opacityRecon = 1.0;
-    portalTint = 1.0;
-    revealActive = t < 0.999;
-    showAlways = t >= 0.999;
-    mouseBlend = 1.0 - THREE.MathUtils.smoothstep(t, 0.0, mouseEnd);
-    followsMouse = mouseBlend > 0.95;
-    revealRadius = THREE.MathUtils.lerp(r0, portalRadius1, t);
-    revealSoftness = THREE.MathUtils.lerp(s0, portalSoftness1, t);
-  } else if ((mode0 === 'ruin' && mode1 === 'portal') || (mode0 === 'portal' && mode1 === 'ruin')) {
-    revealActive = false;
-    showAlways = true;
-    const portalT = mode0 === 'ruin' ? t : 1.0 - t;
-    opacityRuin = mode0 === 'ruin'
-      ? 1.0 - THREE.MathUtils.smoothstep(t, 0.0, transitionConfig.ruinFadeEnd ?? 0.22)
-      : THREE.MathUtils.smoothstep(t, 1.0 - (transitionConfig.ruinFadeEnd ?? 0.22), 1.0);
-    opacityRecon = THREE.MathUtils.smoothstep(portalT, transitionConfig.reconFadeStart ?? 0.08, transitionConfig.reconFadeEnd ?? 0.46);
-    portalTint = THREE.MathUtils.smoothstep(portalT, transitionConfig.reconFadeStart ?? 0.08, transitionConfig.reconFadeEnd ?? 0.46);
-    followsMouse = false;
-    mouseBlend = 0;
-    revealRadius = 0.0;
-    revealSoftness = 0.0;
-  } else if ((mode0 === 'recon' && mode1 === 'portal') || (mode0 === 'portal' && mode1 === 'recon')) {
-    const portalT = mode0 === 'recon' ? t : 1.0 - t;
-
-    revealActive = false;
-    showAlways = true;
-    opacityRuin = 0.0;
-    opacityRecon = 1.0;
-    portalTint = mode0 === 'recon' ? t : 1.0 - t;
-    followsMouse = false;
-    mouseBlend = 0;
-    revealRadius = 0.0;
-    revealSoftness = 0.0;
-  } else if ((mode0 === 'ruin' && mode1 === 'recon') || (mode0 === 'recon' && mode1 === 'ruin')) {
-    revealActive = false;
-    showAlways = true;
-    revealRadius = 0.0;
-    revealSoftness = 0.0;
-    if (mode0 === 'ruin') {
-      opacityRuin = 1.0 - t;
-      opacityRecon = t;
-      portalTint = 0.0;
-    } else {
-      opacityRuin = t;
-      opacityRecon = 1.0 - t;
-      portalTint = 0.0;
-    }
-  } else if ((mode0 === 'ruin' && mode1 === 'reveal') || (mode0 === 'reveal' && mode1 === 'ruin')) {
-    opacityRuin = 1.0;
-    if (mode0 === 'ruin') {
-      revealActive = true;
-      showAlways = false;
-      opacityRecon = 1.0;
-      portalTint = 1.0;
-      followsMouse = true;
-      mouseBlend = 1;
-      revealRadius = THREE.MathUtils.lerp(0.0, r1, t);
-      revealSoftness = THREE.MathUtils.lerp(0.0, s1, t);
-    } else {
-      revealActive = false;
-      showAlways = true;
-      opacityRecon = 1.0 - t;
-      portalTint = 1.0 - t;
-      followsMouse = false;
-      mouseBlend = 0;
-      revealRadius = 0.0;
-      revealSoftness = 0.0;
-    }
-  } else if (mode0 === 'recon' && mode1 === 'reveal') {
-    const revealStart = 0.82;
-    const revealT = THREE.MathUtils.smoothstep(t, revealStart, 1.0);
-
-    // Keep the reconstruction fully renderable until the ruin has faded in.
-    // Otherwise the reveal shader has no mouse hit yet and both models can disappear.
-    revealActive = revealT > 0.0;
-    showAlways = revealT < 1.0;
-    opacityRuin = THREE.MathUtils.smoothstep(t, 0.0, revealStart);
-    opacityRecon = 1.0;
-    portalTint = 1.0;
-    followsMouse = revealT >= 1.0;
-    mouseBlend = revealT;
-    revealRadius = THREE.MathUtils.lerp(3.0, r1, revealT);
-    revealSoftness = THREE.MathUtils.lerp(0.1, s1, revealT);
-  } else if (mode0 === 'reveal' && mode1 === 'recon') {
-    const revealEnd = 0.18;
-    const revealT = 1.0 - THREE.MathUtils.smoothstep(t, 0.0, revealEnd);
-
-    revealActive = revealT > 0.0;
-    showAlways = revealT <= 0.0;
-    opacityRuin = 1.0 - THREE.MathUtils.smoothstep(t, revealEnd, 1.0);
-    opacityRecon = 1.0;
-    portalTint = 1.0;
-    followsMouse = revealT > 0.0;
-    mouseBlend = revealT;
-    revealRadius = THREE.MathUtils.lerp(3.0, r0, revealT);
-    revealSoftness = THREE.MathUtils.lerp(0.1, s0, revealT);
-  }
-
-  return {
-    opacityRuin,
-    opacityRecon,
-    portalTint,
-    revealActive,
-    showAlways,
-    followsMouse,
-    mouseBlend,
-    revealRadius,
-    revealSoftness
-  };
-}
-
-function isPortalRevealTransition(mode0, mode1) {
-  return (mode0 === 'portal' && mode1 === 'reveal') || (mode0 === 'reveal' && mode1 === 'portal');
-}
-
-function applyTransitionState(state) {
-  targetOpacityRuin = state.opacityRuin;
-  targetOpacityRecon = state.opacityRecon;
-  targetPortalTint = state.portalTint;
-  targetRevealActive = state.revealActive;
-  targetShowAlways = state.showAlways;
-  targetRevealFollowsMouse = state.followsMouse;
-  targetRevealMouseBlend = state.mouseBlend;
-  targetRevealRadius = state.revealRadius;
-  targetRevealSoftness = state.revealSoftness;
-
-  if (state.revealActive && !state.followsMouse && state.revealRadius > revealUniforms.uRevealRadius.value) {
-    revealUniforms.uMouseNDC.value.copy(portalMouseTarget);
-    revealUniforms.uRevealRadius.value = state.revealRadius;
-    revealUniforms.uRevealSoftness.value = state.revealSoftness;
-    revealUniforms.uRevealCenterWorld.value.set(9999, 9999, 9999);
-    revealUniforms.uRevealHasHit.value = false;
-  }
-
-  if (state.showAlways && state.opacityRuin <= 0.001 && state.opacityRecon >= 0.999) {
-    revealUniforms.uOpacityRuin.value = 0.0;
-    revealUniforms.uOpacityRecon.value = 1.0;
-    revealUniforms.uPortalTint.value = state.portalTint;
-  }
-}
-
-function startPortalTransition(mode0, mode1, r0, s0, r1, s1, targetProgress, transitionConfig = {}) {
-  const target = THREE.MathUtils.clamp(targetProgress, 0, 1);
-  const sameTransition =
-    activePortalTransition &&
-    activePortalTransition.mode0 === mode0 &&
-    activePortalTransition.mode1 === mode1 &&
-    activePortalTransition.target === target;
-
-  if (sameTransition) return;
-  if (!activePortalTransition && Math.abs(portalTransitionProgress.value - target) < 0.001) return;
-
-  if (portalTransitionTween) {
-    portalTransitionTween.kill();
-  }
-
-  activePortalTransition = { mode0, mode1, r0, s0, r1, s1, target };
-  const distance = Math.abs(target - portalTransitionProgress.value);
-
-  // Immediately apply the initial state so there is no frame gap
-  // between setting targets and the first gsap onUpdate.
-  applyTransitionState(computeTransitionState(mode0, mode1, r0, s0, r1, s1, portalTransitionProgress.value, transitionConfig));
-
-  portalTransitionTween = gsap.to(portalTransitionProgress, {
-    value: target,
-    duration: Math.max(1.5, (transitionConfig.duration ?? 2.8) * distance),
-    ease: 'sine.inOut',
-    onUpdate: () => {
-      applyTransitionState(computeTransitionState(mode0, mode1, r0, s0, r1, s1, portalTransitionProgress.value, transitionConfig));
-    },
+  const tl = gsap.timeline({
     onComplete: () => {
-      applyTransitionState(computeTransitionState(mode0, mode1, r0, s0, r1, s1, target, transitionConfig));
-      activePortalTransition = null;
-      portalTransitionTween = null;
+      enterRevealMode();
     }
+  });
+
+  tl.to(ctx.revealUniforms.uRevealRadius, {
+    value: 1.8,
+    duration: 2.5,
+    ease: 'power2.inOut'
+  });
+
+  tl.to(ctx.revealUniforms.uRevealRadius, {
+    value: 0.26,
+    duration: 1.2,
+    ease: 'power2.out'
+  });
+
+  tl.to(ctx.revealUniforms.uRevealSoftness, {
+    value: 0.05,
+    duration: 0.8
+  }, '-=1.2');
+
+  gsap.to(controls.target, {
+    x: 0,
+    y: 3.5,
+    z: 0,
+    duration: 2.2,
+    ease: 'power3.inOut'
+  });
+
+  gsap.to(camera.position, {
+    x: 11,
+    y: 6.5,
+    z: 14,
+    duration: 2.2,
+    ease: 'power3.inOut'
   });
 }
 
-function cancelPortalTransition() {
-  if (portalTransitionTween) {
-    portalTransitionTween.kill();
-    portalTransitionTween = null;
+// ─── REVEAL / EXPLORE MODE ──────────────────────────
+function enterRevealMode() {
+  console.log("Entering reveal mode!");
+  ctx.isRevealMode = true;
+  const shouldPlayIntro = !window.appState.hasIntroPlayed && window.location.pathname !== '/edits';
+
+  if (shouldPlayIntro) {
+    ctx.introModelOpacity.value = 0;
+  } else {
+    ctx.introModelOpacity.value = 1;
   }
-  activePortalTransition = null;
+
+  ctx.ruinModel.position.set(0, ctx.ruinOffsetY, 0);
+  if (!ctx.isModelAligned) {
+    ctx.reconModel.position.set(0, ctx.reconOffsetY, 0);
+  }
+
+  ctx.revealUniforms.uRevealActive.value = true;
+  ctx.revealUniforms.uShowAlways.value = false;
+  ctx.revealUniforms.uRevealHasHit.value = false;
+  ctx.revealUniforms.uRevealCenterWorld.value.set(9999, 9999, 9999);
+
+  ctx.reconModel.traverse((child) => {
+    if (child.isMesh) {
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach(m => { m.opacity = 1.0; m.transparent = true; m.needsUpdate = true; });
+    }
+  });
+
+  ctx.ruinModel.visible = true;
+  ctx.reconModel.visible = true;
+  configureReconstructionDepth(false);
+
+  if (window.appState.stations && window.appState.stations.length > 0) {
+    const first = window.appState.stations[0];
+    camera.position.set(first.cameraPos.x, first.cameraPos.y, first.cameraPos.z);
+    controls.target.set(first.cameraTarget.x, first.cameraTarget.y, first.cameraTarget.z);
+    ctx.targetCameraPos.copy(camera.position);
+    ctx.targetCameraTarget.copy(controls.target);
+    
+    ctx.revealUniforms.uRevealRadius.value = first.revealRadius;
+    ctx.revealUniforms.uRevealSoftness.value = first.revealSoftness;
+    ctx.targetRevealRadius = first.revealRadius;
+    ctx.targetRevealSoftness = first.revealSoftness;
+
+    ctx.targetLightIntensity = first.lightIntensity ?? 1.0;
+    ctx.targetShadowDiffuse = first.shadowDiffuse ?? 1.0;
+    ctx.currentLightIntensity = ctx.targetLightIntensity;
+    ctx.currentShadowDiffuse = ctx.targetShadowDiffuse;
+
+    ctx.targetHemiEnabled = (first.lightHemiEnabled ?? true) ? 1.0 : 0.0;
+    ctx.currentHemiEnabled = ctx.targetHemiEnabled;
+    ctx.targetKeyEnabled = (first.lightKeyEnabled ?? true) ? 1.0 : 0.0;
+    ctx.currentKeyEnabled = ctx.targetKeyEnabled;
+    ctx.targetFillEnabled = (first.lightFillEnabled ?? true) ? 1.0 : 0.0;
+    ctx.currentFillEnabled = ctx.targetFillEnabled;
+    ctx.targetSpotEnabled = (first.lightSpotEnabled ?? true) ? 1.0 : 0.0;
+    ctx.currentSpotEnabled = ctx.targetSpotEnabled;
+
+    ctx.targetKeyFixedToCamera = !!first.lightKeyFixedToCamera;
+    ctx.currentKeyFixedToCamera = ctx.targetKeyFixedToCamera;
+    ctx.targetFillFixedToCamera = !!first.lightFillFixedToCamera;
+    ctx.currentFillFixedToCamera = ctx.targetFillFixedToCamera;
+    ctx.targetSpotFixedToCamera = !!first.lightSpotFixedToCamera;
+    ctx.currentSpotFixedToCamera = ctx.targetSpotFixedToCamera;
+
+    ctx.targetKeyPos.set(first.lightKeyPos?.x ?? 8, first.lightKeyPos?.y ?? 16, first.lightKeyPos?.z ?? 10);
+    ctx.currentKeyPos.copy(ctx.targetKeyPos);
+    ctx.targetFillPos.set(first.lightFillPos?.x ?? -8, first.lightFillPos?.y ?? 12, first.lightFillPos?.z ?? -10);
+    ctx.currentFillPos.copy(ctx.targetFillPos);
+    ctx.targetSpotPos.set(first.lightSpotPos?.x ?? 0, first.lightSpotPos?.y ?? 15, first.lightSpotPos?.z ?? 0);
+    ctx.currentSpotPos.copy(ctx.targetSpotPos);
+
+    updateStationImages(first.images);
+
+    ctx.lastIntervalIndex = 0;
+    ctx.lastTargetP = 0.0;
+    ctx.transitionProgress.value = 0.0;
+    if (ctx.scrollTransitionTween) {
+      ctx.scrollTransitionTween.kill();
+      ctx.scrollTransitionTween = null;
+    }
+
+    window.appState.update({
+      mode: 'reveal',
+      stationMode: 'scroll',
+      viewMode: first.viewMode,
+      scrollProgress: 0,
+      currentStationIndex: 0,
+      lightIntensity: ctx.targetLightIntensity,
+      shadowDiffuse: ctx.targetShadowDiffuse,
+      introPhase: shouldPlayIntro ? 'title' : 'done'
+    });
+    window.appState.setViewMode(first.viewMode);
+  } else {
+    window.appState.update({
+      mode: 'reveal',
+      stationMode: 'scroll',
+      viewMode: 'reveal',
+      scrollProgress: 0,
+      currentStationIndex: 0,
+      introPhase: shouldPlayIntro ? 'title' : 'done'
+    });
+  }
+
+  if (shouldPlayIntro) {
+    ctx.revealUniforms.uOpacityRuin.value = 0;
+    ctx.revealUniforms.uOpacityRecon.value = 0;
+    ctx.revealUniforms.uPortalTint.value = 0;
+  }
+
+  controls.enabled = false;
+  controls.autoRotate = false;
+
+  if (shouldPlayIntro) {
+    playInitialIntro();
+  }
 }
 
-// ─── SCROLL UPDATE HANDLER ────────────────────────────
+// ─── SCROLL PROGRESS LOGIC ────────────────────────────
 function updateScrollProgress(progress) {
   const clampedProgress = THREE.MathUtils.clamp(Number.isFinite(progress) ? progress : 0, 0, 1);
-  const scrollingForward = clampedProgress >= previousScrollProgress;
   window.appState.update({ scrollProgress: clampedProgress });
+}
+
+function applyScrollProgress(progress) {
+  const clampedProgress = THREE.MathUtils.clamp(Number.isFinite(progress) ? progress : 0, 0, 1);
+  const scrollingForward = clampedProgress >= ctx.previousScrollProgress;
 
   const stations = window.appState.stations || [];
   const N = stations.length;
   if (N === 0) return;
   if (N === 1) {
     const onlyStation = stations[0];
-    targetCameraPos.set(onlyStation.cameraPos.x, onlyStation.cameraPos.y, onlyStation.cameraPos.z);
-    targetCameraTarget.set(onlyStation.cameraTarget.x, onlyStation.cameraTarget.y, onlyStation.cameraTarget.z);
-    targetRevealRadius = onlyStation.revealRadius;
-    targetRevealSoftness = onlyStation.revealSoftness;
+    ctx.targetCameraPos.set(onlyStation.cameraPos.x, onlyStation.cameraPos.y, onlyStation.cameraPos.z);
+    ctx.targetCameraTarget.set(onlyStation.cameraTarget.x, onlyStation.cameraTarget.y, onlyStation.cameraTarget.z);
+    ctx.targetRevealRadius = onlyStation.revealRadius;
+    ctx.targetRevealSoftness = onlyStation.revealSoftness;
+    ctx.targetLightIntensity = onlyStation.lightIntensity ?? 1.0;
+    ctx.targetShadowDiffuse = onlyStation.shadowDiffuse ?? 1.0;
+    ctx.targetHemiEnabled = (onlyStation.lightHemiEnabled ?? true) ? 1.0 : 0.0;
+    ctx.targetKeyEnabled = (onlyStation.lightKeyEnabled ?? true) ? 1.0 : 0.0;
+    ctx.targetFillEnabled = (onlyStation.lightFillEnabled ?? true) ? 1.0 : 0.0;
+    ctx.targetSpotEnabled = (onlyStation.lightSpotEnabled ?? true) ? 1.0 : 0.0;
+    ctx.targetKeyFixedToCamera = !!onlyStation.lightKeyFixedToCamera;
+    ctx.targetFillFixedToCamera = !!onlyStation.lightFillFixedToCamera;
+    ctx.targetSpotFixedToCamera = !!onlyStation.lightSpotFixedToCamera;
+
+    ctx.targetKeyPos.set(onlyStation.lightKeyPos?.x ?? 8, onlyStation.lightKeyPos?.y ?? 16, onlyStation.lightKeyPos?.z ?? 10);
+    ctx.targetFillPos.set(onlyStation.lightFillPos?.x ?? -8, onlyStation.lightFillPos?.y ?? 12, onlyStation.lightFillPos?.z ?? -10);
+    ctx.targetSpotPos.set(onlyStation.lightSpotPos?.x ?? 0, onlyStation.lightSpotPos?.y ?? 15, onlyStation.lightSpotPos?.z ?? 0);
 
     if (window.appState.viewMode !== onlyStation.viewMode) {
       window.appState.setViewMode(onlyStation.viewMode);
@@ -896,12 +613,12 @@ function updateScrollProgress(progress) {
   }
 
   const lastStationThreshold = 0.98;
+  const hasArrivedAtEnd = clampedProgress >= lastStationThreshold && camera.position.distanceTo(ctx.targetCameraPos) < 0.1;
 
-  if (clampedProgress >= lastStationThreshold) {
+  if (hasArrivedAtEnd) {
     if (!controls.enabled && window.appState.stationMode === 'scroll') {
       controls.enabled = true;
       controls.autoRotate = false;
-      // Snap target to final station's camera target once to prevent jumping when first enabled
       const lastStation = stations[N - 1];
       controls.target.set(lastStation.cameraTarget.x, lastStation.cameraTarget.y, lastStation.cameraTarget.z);
     }
@@ -922,7 +639,6 @@ function updateScrollProgress(progress) {
   const nextIndex = index + 1;
   const tRaw = THREE.MathUtils.clamp(scaledProgress - index, 0, 1);
 
-  // Smooth the transition using smoothstep
   const t = THREE.MathUtils.smoothstep(tRaw, 0, 1);
 
   const currentStation = stations[index];
@@ -933,23 +649,74 @@ function updateScrollProgress(progress) {
     !portalRevealTransition &&
     (currentStation.viewMode === 'portal' || nextStation.viewMode === 'portal');
 
-  // Set target camera position and target
-  targetCameraPos.set(
+  ctx.targetCameraPos.set(
     THREE.MathUtils.lerp(currentStation.cameraPos.x, nextStation.cameraPos.x, t),
     THREE.MathUtils.lerp(currentStation.cameraPos.y, nextStation.cameraPos.y, t),
     THREE.MathUtils.lerp(currentStation.cameraPos.z, nextStation.cameraPos.z, t)
   );
 
-  targetCameraTarget.set(
+  ctx.targetCameraTarget.set(
     THREE.MathUtils.lerp(currentStation.cameraTarget.x, nextStation.cameraTarget.x, t),
     THREE.MathUtils.lerp(currentStation.cameraTarget.y, nextStation.cameraTarget.y, t),
     THREE.MathUtils.lerp(currentStation.cameraTarget.z, nextStation.cameraTarget.z, t)
   );
 
+  ctx.targetLightIntensity = THREE.MathUtils.lerp(
+    currentStation.lightIntensity ?? 1.0,
+    nextStation.lightIntensity ?? 1.0,
+    t
+  );
+  ctx.targetShadowDiffuse = THREE.MathUtils.lerp(
+    currentStation.shadowDiffuse ?? 1.0,
+    nextStation.shadowDiffuse ?? 1.0,
+    t
+  );
+
+  ctx.targetHemiEnabled = THREE.MathUtils.lerp(
+    (currentStation.lightHemiEnabled ?? true) ? 1.0 : 0.0,
+    (nextStation.lightHemiEnabled ?? true) ? 1.0 : 0.0,
+    t
+  );
+  ctx.targetKeyEnabled = THREE.MathUtils.lerp(
+    (currentStation.lightKeyEnabled ?? true) ? 1.0 : 0.0,
+    (nextStation.lightKeyEnabled ?? true) ? 1.0 : 0.0,
+    t
+  );
+  ctx.targetFillEnabled = THREE.MathUtils.lerp(
+    (currentStation.lightFillEnabled ?? true) ? 1.0 : 0.0,
+    (nextStation.lightFillEnabled ?? true) ? 1.0 : 0.0,
+    t
+  );
+  ctx.targetSpotEnabled = THREE.MathUtils.lerp(
+    (currentStation.lightSpotEnabled ?? true) ? 1.0 : 0.0,
+    (nextStation.lightSpotEnabled ?? true) ? 1.0 : 0.0,
+    t
+  );
+
+  ctx.targetKeyFixedToCamera = t < 0.5 ? !!currentStation.lightKeyFixedToCamera : !!nextStation.lightKeyFixedToCamera;
+  ctx.targetFillFixedToCamera = t < 0.5 ? !!currentStation.lightFillFixedToCamera : !!nextStation.lightFillFixedToCamera;
+  ctx.targetSpotFixedToCamera = t < 0.5 ? !!currentStation.lightSpotFixedToCamera : !!nextStation.lightSpotFixedToCamera;
+
+  ctx.targetKeyPos.set(
+    THREE.MathUtils.lerp(currentStation.lightKeyPos?.x ?? 8, nextStation.lightKeyPos?.x ?? 8, t),
+    THREE.MathUtils.lerp(currentStation.lightKeyPos?.y ?? 16, nextStation.lightKeyPos?.y ?? 16, t),
+    THREE.MathUtils.lerp(currentStation.lightKeyPos?.z ?? 10, nextStation.lightKeyPos?.z ?? 10, t)
+  );
+  ctx.targetFillPos.set(
+    THREE.MathUtils.lerp(currentStation.lightFillPos?.x ?? -8, nextStation.lightFillPos?.x ?? -8, t),
+    THREE.MathUtils.lerp(currentStation.lightFillPos?.y ?? 12, nextStation.lightFillPos?.y ?? 12, t),
+    THREE.MathUtils.lerp(currentStation.lightFillPos?.z ?? -10, nextStation.lightFillPos?.z ?? -10, t)
+  );
+  ctx.targetSpotPos.set(
+    THREE.MathUtils.lerp(currentStation.lightSpotPos?.x ?? 0, nextStation.lightSpotPos?.x ?? 0, t),
+    THREE.MathUtils.lerp(currentStation.lightSpotPos?.y ?? 15, nextStation.lightSpotPos?.y ?? 15, t),
+    THREE.MathUtils.lerp(currentStation.lightSpotPos?.z ?? 0, nextStation.lightSpotPos?.z ?? 0, t)
+  );
+
   if (portalRevealTransition) {
-    if (scrollTransitionTween) {
-      scrollTransitionTween.kill();
-      scrollTransitionTween = null;
+    if (ctx.scrollTransitionTween) {
+      ctx.scrollTransitionTween.kill();
+      ctx.scrollTransitionTween = null;
     }
 
     const targetPortalProgress = scrollingForward
@@ -967,7 +734,7 @@ function updateScrollProgress(progress) {
       transitionConfig
     );
 
-    if (!activePortalTransition) {
+    if (!ctx.activePortalTransition) {
       applyTransitionState(computeTransitionState(
         currentStation.viewMode,
         nextStation.viewMode,
@@ -975,51 +742,50 @@ function updateScrollProgress(progress) {
         currentStation.revealSoftness,
         nextStation.revealRadius,
         nextStation.revealSoftness,
-        portalTransitionProgress.value,
+        ctx.portalTransitionProgress.value,
         transitionConfig
       ));
     }
 
-    previousScrollProgress = clampedProgress;
+    ctx.previousScrollProgress = clampedProgress;
     updateActiveStationUi(t, currentStation, nextStation, index, nextIndex);
     return;
   }
 
   cancelPortalTransition();
 
-  // Detect interval changes and reset progress accordingly
-  if (index !== lastIntervalIndex) {
-    transitionProgress.value = index > lastIntervalIndex ? 0.0 : 1.0;
-    lastTargetP = transitionProgress.value;
-    lastIntervalIndex = index;
-    if (scrollTransitionTween) {
-      scrollTransitionTween.kill();
-      scrollTransitionTween = null;
+  if (index !== ctx.lastIntervalIndex) {
+    ctx.transitionProgress.value = index > ctx.lastIntervalIndex ? 0.0 : 1.0;
+    ctx.lastTargetP = ctx.transitionProgress.value;
+    ctx.lastIntervalIndex = index;
+    if (ctx.scrollTransitionTween) {
+      ctx.scrollTransitionTween.kill();
+      ctx.scrollTransitionTween = null;
     }
   }
 
   if (scrollDrivenPortalTransition) {
-    if (scrollTransitionTween) {
-      scrollTransitionTween.kill();
-      scrollTransitionTween = null;
+    if (ctx.scrollTransitionTween) {
+      ctx.scrollTransitionTween.kill();
+      ctx.scrollTransitionTween = null;
     }
     const portalProgress = nextStation.viewMode === 'portal'
       ? THREE.MathUtils.smoothstep(tRaw, transitionConfig.reconFadeStart, transitionConfig.reconFadeEnd)
       : t;
-    transitionProgress.value = portalProgress;
-    portalTransitionProgress.value = 0;
-    lastTargetP = portalProgress;
+    ctx.transitionProgress.value = portalProgress;
+    ctx.portalTransitionProgress.value = 0;
+    ctx.lastTargetP = portalProgress;
   } else {
     let targetP = tRaw < 0.5 ? 0.0 : 1.0;
     let transitionDuration = 1.0;
 
-    if (targetP !== lastTargetP) {
-      lastTargetP = targetP;
-      if (scrollTransitionTween) {
-        scrollTransitionTween.kill();
+    if (targetP !== ctx.lastTargetP) {
+      ctx.lastTargetP = targetP;
+      if (ctx.scrollTransitionTween) {
+        ctx.scrollTransitionTween.kill();
       }
 
-      scrollTransitionTween = gsap.to(transitionProgress, {
+      ctx.scrollTransitionTween = gsap.to(ctx.transitionProgress, {
         value: targetP,
         duration: transitionDuration,
         ease: 'power2.out',
@@ -1031,7 +797,7 @@ function updateScrollProgress(progress) {
             currentStation.revealSoftness,
             nextStation.revealRadius,
             nextStation.revealSoftness,
-            transitionProgress.value,
+            ctx.transitionProgress.value,
             transitionConfig
           ));
         }
@@ -1039,13 +805,12 @@ function updateScrollProgress(progress) {
     }
   }
 
-  if (activePortalTransition) {
-    previousScrollProgress = clampedProgress;
+  if (ctx.activePortalTransition) {
+    ctx.previousScrollProgress = clampedProgress;
     updateActiveStationUi(t, currentStation, nextStation, index, nextIndex);
     return;
   }
 
-  // Compute transition properties using the animated transitionProgress
   const state = computeTransitionState(
     currentStation.viewMode,
     nextStation.viewMode,
@@ -1053,14 +818,12 @@ function updateScrollProgress(progress) {
     currentStation.revealSoftness,
     nextStation.revealRadius,
     nextStation.revealSoftness,
-    transitionProgress.value,
+    ctx.transitionProgress.value,
     transitionConfig
   );
 
   applyTransitionState(state);
-  previousScrollProgress = clampedProgress;
-
-  // View mode transition at midpoint (updates UI)
+  ctx.previousScrollProgress = clampedProgress;
   updateActiveStationUi(t, currentStation, nextStation, index, nextIndex);
 }
 
@@ -1069,7 +832,7 @@ function updateActiveStationUi(t, currentStation, nextStation, index, nextIndex)
   let activeStationIndex = t < 0.5 ? index : nextIndex;
 
   if (nextStation.viewMode === 'portal' && currentStation.viewMode !== 'portal') {
-    const portalComplete = transitionProgress.value >= 0.98;
+    const portalComplete = ctx.transitionProgress.value >= 0.98;
     activeStation = portalComplete ? nextStation : currentStation;
     activeStationIndex = portalComplete ? nextIndex : index;
   } else if (currentStation.viewMode === 'portal' && nextStation.viewMode === 'reveal') {
@@ -1084,328 +847,9 @@ function updateActiveStationUi(t, currentStation, nextStation, index, nextIndex)
 
   if (window.appState.currentStationIndex !== activeStationIndex) {
     window.appState.update({ currentStationIndex: activeStationIndex });
+    updateStationImages(activeStation.images);
+    window.audioManager?.playTransition();
   }
-}
-
-// ─── ALIGNMENT MODE ──────────────────────────────────
-function startAlignmentMode() {
-  window.appState.update({
-    mode: 'aligning',
-    alignStep: 0,
-    alignTarget: 'ruin'
-  });
-
-  isRevealMode = false;
-  controls.autoRotate = false;
-
-  // Position both models at center (0, y, 0) for perfect OrbitControls target focus
-  ruinModel.position.set(0, ruinOffsetY, 0);
-  reconModel.position.set(0, reconOffsetY, 0);
-
-  // Show ruin, hide reconstruction first
-  ruinModel.visible = true;
-  reconModel.visible = false;
-
-  revealUniforms.uRevealActive.value = false;
-  revealUniforms.uShowAlways.value = true;
-
-  // Focus camera directly on the center model
-  controls.target.set(0, 3.5, 0);
-  camera.position.set(10, 7.5, 14);
-
-  // Clear any existing markers/lines/points
-  window.appState.resetAlignment();
-}
-
-function handleAlignClick(event) {
-  if (window.appState.mode !== 'aligning') return;
-
-  const rect = canvas.getBoundingClientRect();
-  const mx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  const my = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-  raycaster.setFromCamera(new THREE.Vector2(mx, my), camera);
-
-  const isRuinTurn = window.appState.alignTarget === 'ruin';
-  const targetModel = isRuinTurn ? ruinModel : reconModel;
-  const intersects = raycaster.intersectObject(targetModel, true);
-
-  if (intersects.length === 0) return;
-
-  const worldPoint = intersects[0].point.clone();
-  const localPoint = targetModel.worldToLocal(worldPoint.clone());
-
-  if (isRuinTurn) {
-    alignPoints.ruin.push(localPoint);
-    alignPoints.ruinWorld.push(worldPoint);
-    addMarker(worldPoint, 'ruin');
-
-    const nextStep = window.appState.alignStep + 1;
-    if (nextStep === 3) {
-      // Transition to Reconstruction phase
-      window.appState.update({
-        alignStep: nextStep,
-        alignTarget: 'recon'
-      });
-      // Hide ruin and its markers, show reconstruction
-      ruinModel.visible = false;
-      alignMarkers.forEach(m => { if (m.userData.type === 'ruin') m.visible = false; });
-      reconModel.visible = true;
-    } else {
-      window.appState.update({
-        alignStep: nextStep,
-        alignTarget: 'ruin'
-      });
-    }
-  } else {
-    alignPoints.recon.push(localPoint);
-    alignPoints.reconWorld.push(worldPoint);
-    addMarker(worldPoint, 'recon');
-
-    const nextStep = window.appState.alignStep + 1;
-    if (nextStep === 6) {
-      window.appState.update({
-        alignStep: nextStep,
-        alignTarget: 'done'
-      });
-      // Delay slightly for visual feedback, then align and merge!
-      setTimeout(completeAlignment, 700);
-    } else {
-      window.appState.update({
-        alignStep: nextStep,
-        alignTarget: 'recon'
-      });
-    }
-  }
-}
-
-function addMarker(worldPos, type) {
-  const geo = new THREE.SphereGeometry(0.12, 16, 16);
-  const color = type === 'ruin' ? 0xffa726 : 0x6ef0f5; // Gold vs Teal
-  const mat = new THREE.MeshBasicMaterial({
-    color,
-    depthTest: false,
-    transparent: true,
-    opacity: 0.9
-  });
-  const sphere = new THREE.Mesh(geo, mat);
-  sphere.renderOrder = 999;
-  sphere.position.copy(worldPos);
-  sphere.userData = { type };
-  scene.add(sphere);
-  alignMarkers.push(sphere);
-}
-
-function addConnectingLine(p1, p2) {
-  // Line helper not needed for sequential mode, but kept as mock
-}
-
-function clearMarkers() {
-  alignMarkers.forEach(m => {
-    scene.remove(m);
-    m.geometry.dispose();
-    m.material.dispose();
-  });
-  alignMarkers.length = 0;
-}
-
-function clearLines() {
-  alignLines.forEach(l => {
-    scene.remove(l);
-    l.geometry.dispose();
-    l.material.dispose();
-  });
-  alignLines.length = 0;
-}
-
-function completeAlignment() {
-  const matrix = computeAlignmentMatrix(alignPoints.reconWorld, alignPoints.ruinWorld);
-
-  if (matrix) {
-    reconModel.applyMatrix4(matrix);
-    reconModel.updateMatrixWorld(true);
-    saveAlignment(matrix);
-    window.appState.update({ alignment: matrixToAlignment(matrix) });
-    isModelAligned = true;
-  }
-
-  // Clear visual markers
-  clearMarkers();
-
-  // Reset visibilities for reveal mode
-  ruinModel.visible = true;
-  reconModel.visible = true;
-
-  // Make materials transparent for reveal compile
-  reconModel.traverse((child) => {
-    if (child.isMesh) {
-      const mats = Array.isArray(child.material) ? child.material : [child.material];
-      mats.forEach(m => { m.opacity = 1.0; m.transparent = true; m.needsUpdate = true; });
-    }
-  });
-
-  // Smooth cinematic camera target and scan sweep animation
-  gsap.killTweensOf(camera.position);
-  gsap.killTweensOf(controls.target);
-
-  // Assemble Sweep: Golden shockwave scan line radiating outward
-  revealUniforms.uRevealActive.value = true;
-  revealUniforms.uCameraWorldPos.value.copy(camera.position);
-  const modelCenter = new THREE.Vector3(0, ruinOffsetY, 0);
-  revealUniforms.uRayDirection.value.subVectors(modelCenter, camera.position).normalize();
-  revealUniforms.uRevealCenterWorld.value.copy(modelCenter);
-  revealUniforms.uRevealHasHit.value = true;
-  revealUniforms.uMouseNDC.value.set(0, 0); // start at center
-  revealUniforms.uRevealRadius.value = 0.0;
-  revealUniforms.uRevealSoftness.value = 0.15; // wide glow soft edge
-
-  const tl = gsap.timeline({
-    onComplete: () => {
-      enterRevealMode();
-    }
-  });
-
-  tl.to(revealUniforms.uRevealRadius, {
-    value: 1.8,
-    duration: 2.5,
-    ease: 'power2.inOut'
-  });
-
-  tl.to(revealUniforms.uRevealRadius, {
-    value: 0.26,
-    duration: 1.2,
-    ease: 'power2.out'
-  });
-
-  tl.to(revealUniforms.uRevealSoftness, {
-    value: 0.05,
-    duration: 0.8
-  }, '-=1.2');
-
-  // Rotate camera slightly to frame the merged monument beautifully
-  gsap.to(controls.target, {
-    x: 0,
-    y: 3.5,
-    z: 0,
-    duration: 2.2,
-    ease: 'power3.inOut'
-  });
-
-  gsap.to(camera.position, {
-    x: 11,
-    y: 6.5,
-    z: 14,
-    duration: 2.2,
-    ease: 'power3.inOut'
-  });
-}
-
-
-// ─── REVEAL / EXPLORE MODE ──────────────────────────
-function enterRevealMode() {
-  console.log("Entering reveal mode!");
-  isRevealMode = true;
-  const shouldPlayIntro = !window.appState.hasIntroPlayed && window.location.pathname !== '/edits';
-
-  if (shouldPlayIntro) {
-    introModelOpacity.value = 0;
-  } else {
-    introModelOpacity.value = 1;
-  }
-
-  // Move models to center, preserving their height offsets
-  ruinModel.position.set(0, ruinOffsetY, 0);
-  if (!isModelAligned) {
-    reconModel.position.set(0, reconOffsetY, 0);
-  }
-
-  revealUniforms.uRevealActive.value = true;
-  revealUniforms.uShowAlways.value = false;
-  revealUniforms.uRevealHasHit.value = false;
-  revealUniforms.uRevealCenterWorld.value.set(9999, 9999, 9999);
-
-  reconModel.traverse((child) => {
-    if (child.isMesh) {
-      const mats = Array.isArray(child.material) ? child.material : [child.material];
-      mats.forEach(m => { m.opacity = 1.0; m.transparent = true; m.needsUpdate = true; });
-    }
-  });
-
-  ruinModel.visible = true;
-  reconModel.visible = true;
-  configureReconstructionDepth(false);
-
-  // Initialize camera to first station if available
-  if (window.appState.stations && window.appState.stations.length > 0) {
-    const first = window.appState.stations[0];
-    camera.position.set(first.cameraPos.x, first.cameraPos.y, first.cameraPos.z);
-    controls.target.set(first.cameraTarget.x, first.cameraTarget.y, first.cameraTarget.z);
-    targetCameraPos.copy(camera.position);
-    targetCameraTarget.copy(controls.target);
-    
-    revealUniforms.uRevealRadius.value = first.revealRadius;
-    revealUniforms.uRevealSoftness.value = first.revealSoftness;
-    targetRevealRadius = first.revealRadius;
-    targetRevealSoftness = first.revealSoftness;
-
-    lastIntervalIndex = 0;
-    lastTargetP = 0.0;
-    transitionProgress.value = 0.0;
-    if (scrollTransitionTween) {
-      scrollTransitionTween.kill();
-      scrollTransitionTween = null;
-    }
-
-    window.appState.update({
-      mode: 'reveal',
-      stationMode: 'scroll',
-      viewMode: first.viewMode,
-      scrollProgress: 0,
-      currentStationIndex: 0,
-      introPhase: shouldPlayIntro ? 'title' : 'done'
-    });
-    window.appState.setViewMode(first.viewMode);
-  } else {
-    window.appState.update({
-      mode: 'reveal',
-      stationMode: 'scroll',
-      viewMode: 'reveal',
-      scrollProgress: 0,
-      currentStationIndex: 0,
-      introPhase: shouldPlayIntro ? 'title' : 'done'
-    });
-  }
-
-  if (shouldPlayIntro) {
-    revealUniforms.uOpacityRuin.value = 0;
-    revealUniforms.uOpacityRecon.value = 0;
-    revealUniforms.uPortalTint.value = 0;
-  }
-
-  controls.enabled = false;
-  controls.autoRotate = false;
-
-  if (shouldPlayIntro) {
-    playInitialIntro();
-  }
-}
-
-function playInitialIntro() {
-  const tl = gsap.timeline({
-    defaults: { ease: 'power2.out' },
-    onComplete: () => {
-      window.appState.update({
-        introPhase: 'done',
-        hasIntroPlayed: true
-      });
-    }
-  });
-
-  tl.to({}, { duration: 1.0 });
-  tl.add(() => window.appState.update({ introPhase: 'model' }));
-  tl.to(introModelOpacity, { value: 1, duration: 1.1 });
-  tl.add(() => window.appState.update({ introPhase: 'text' }), '-=0.15');
-  tl.to({}, { duration: 0.9 });
 }
 
 // ─── EVENTS ──────────────────────────────────────────
@@ -1426,36 +870,33 @@ canvas.addEventListener('mouseup', (e) => {
   const dist = Math.sqrt(dx * dx + dy * dy);
   const elapsed = Date.now() - dragTime;
 
-  // Prevent placing a marker if the user was actually dragging/orbiting the camera
   if (dist > 6 || elapsed > 300) {
     return;
   }
-
   handleAlignClick(e);
 });
 
 function handleMove(clientX, clientY) {
-  hasMouseMoved = true;
-  if (window.appState.mode !== 'reveal') return;
-  // Allow mouse tracking during reveal mode AND during active portal↔reveal transitions
-  const vm = window.appState.viewMode;
-  if (vm !== 'reveal' && !activePortalTransition && !targetRevealActive) return;
+  ctx.hasMouseMoved = true;
+  if (window.appState?.mode !== 'reveal') return;
+  const vm = window.appState?.viewMode;
+  if (vm !== 'reveal' && !ctx.activePortalTransition && !ctx.targetRevealActive) return;
 
   const rect = canvas.getBoundingClientRect();
   const mx = ((clientX - rect.left) / rect.width) * 2 - 1;
   const my = -((clientY - rect.top) / rect.height) * 2 + 1;
-  mouseTarget.set(mx, my);
-  isMouseOutside = false;
+  ctx.mouseTarget.set(mx, my);
+  ctx.isMouseOutside = false;
 }
 
 window.addEventListener('pointermove', (e) => handleMove(e.clientX, e.clientY));
 window.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
 
 document.addEventListener('pointerleave', () => {
-  isMouseOutside = true;
+  ctx.isMouseOutside = true;
 });
 document.addEventListener('mouseleave', () => {
-  isMouseOutside = true;
+  ctx.isMouseOutside = true;
 });
 
 // ─── RESIZE ──────────────────────────────────────────
@@ -1463,110 +904,8 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.getDrawingBufferSize(revealUniforms.uViewportSize.value);
+  renderer.getDrawingBufferSize(ctx.revealUniforms.uViewportSize.value);
 });
-
-// ─── ANIMATION LOOP ──────────────────────────────────
-const clock = new THREE.Clock();
-let frameCount = 0;
-
-function animate() {
-  requestAnimationFrame(animate);
-  frameCount++;
-
-  const elapsed = clock.getElapsedTime();
-
-
-
-  // Update time for environment/material animations (e.g. scanlines)
-  revealUniforms.uTime.value = elapsed;
-  if (skyMaterial && skyMaterial.uniforms && skyMaterial.uniforms.uTime) {
-    skyMaterial.uniforms.uTime.value = elapsed;
-  }
-  if (grassObj && grassObj.material && grassObj.material.uniforms && grassObj.material.uniforms.uTime) {
-    grassObj.material.uniforms.uTime.value = elapsed;
-  }
-
-  // Smooth cursor follow and camera ray calculation
-  if (isRevealMode && targetRevealActive && !targetShowAlways) {
-    const targetAnchor = (isMouseOutside || !hasMouseMoved) ? portalMouseTarget : mouseTarget;
-    blendedRevealTarget.copy(targetAnchor);
-
-    if (revealUniforms.uMouseNDC.value.x > 9000) {
-      revealUniforms.uMouseNDC.value.copy(blendedRevealTarget);
-    } else {
-      revealUniforms.uMouseNDC.value.lerp(blendedRevealTarget, targetRevealFollowsMouse ? 0.12 : 0.08);
-    }
-
-    // Always update camera position and ray direction based on current uMouseNDC
-    revealUniforms.uCameraWorldPos.value.copy(camera.position);
-    raycaster.setFromCamera(revealUniforms.uMouseNDC.value, camera);
-    revealUniforms.uRayDirection.value.copy(raycaster.ray.direction);
-
-    // Always raycast when the reveal is active. The uMouseNDC position is already
-    // controlled correctly (centered during transitions or when mouse is outside,
-    // mouse-following when mouse is inside).
-    const revealHits = raycaster.intersectObjects(revealHitMeshes, false);
-    if (revealHits.length > 0) {
-      const hit = revealHits[0].point;
-      revealUniforms.uRevealCenterWorld.value.copy(hit);
-      revealUniforms.uRevealHasHit.value = true;
-    } else {
-      revealUniforms.uRevealCenterWorld.value.set(9999, 9999, 9999);
-      revealUniforms.uRevealHasHit.value = false;
-    }
-  }
-
-  if (window.appState.mode === 'reveal') {
-    if (window.appState.stationMode === 'scroll') {
-      if (window.appState.scrollProgress < 0.98 || !window.appState.hasUserManipulatedCamera) {
-        camera.position.lerp(targetCameraPos, 0.06);
-        controls.target.lerp(targetCameraTarget, 0.06);
-      }
-      
-      // During portal transitions the gsap tween already provides smooth
-      // interpolation of the reveal radius. Applying a second lerp on top
-      // causes the radius to lag behind and then catch up, creating jank.
-      if (activePortalTransition) {
-        revealUniforms.uRevealRadius.value = targetRevealRadius;
-        revealUniforms.uRevealSoftness.value = targetRevealSoftness;
-      } else {
-        revealUniforms.uRevealRadius.value = THREE.MathUtils.lerp(revealUniforms.uRevealRadius.value, targetRevealRadius, 0.06);
-        revealUniforms.uRevealSoftness.value = THREE.MathUtils.lerp(revealUniforms.uRevealSoftness.value, targetRevealSoftness, 0.06);
-      }
-    }
-    
-    // During portal transitions converge opacities faster so the ruin
-    // reaches full opacity before the reveal circle shrinks enough to
-    // expose the gap. The large initial radius hides the fast fade-in.
-    const opLerp = activePortalTransition ? 0.25 : 0.08;
-    revealUniforms.uOpacityRuin.value = THREE.MathUtils.lerp(revealUniforms.uOpacityRuin.value, targetOpacityRuin * introModelOpacity.value, opLerp);
-    revealUniforms.uOpacityRecon.value = THREE.MathUtils.lerp(revealUniforms.uOpacityRecon.value, targetOpacityRecon * introModelOpacity.value, opLerp);
-    revealUniforms.uPortalTint.value = THREE.MathUtils.lerp(revealUniforms.uPortalTint.value, targetPortalTint, opLerp);
-    revealUniforms.uRevealActive.value = targetRevealActive;
-    revealUniforms.uShowAlways.value = targetShowAlways;
-    
-    // Manage model visibility to save draw calls.
-    // Keep the ruin visible whenever the reveal is active even if its
-    // opacity is still near zero — this prevents a GPU upload stutter
-    // on the first portal→reveal transition (textures stay resident).
-    if (ruinModel) ruinModel.visible = (revealUniforms.uOpacityRuin.value > 0.01) || targetRevealActive;
-    if (reconModel) {
-      reconModel.visible = (revealUniforms.uOpacityRecon.value > 0.01 || (targetRevealActive && revealUniforms.uRevealRadius.value > 0.01));
-      reconModel.renderOrder = targetRevealActive ? 10 : 0;
-    }
-  }
-
-  // Calculate world radius and softness dynamically from camera distance to keep screen-space size constant
-  const distToTarget = camera.position.distanceTo(controls.target);
-  const fovRad = (camera.fov * Math.PI) / 180;
-  const halfFovHeight = distToTarget * Math.tan(fovRad / 2);
-  revealUniforms.uWorldRadius.value = revealUniforms.uRevealRadius.value * halfFovHeight;
-  revealUniforms.uWorldSoftness.value = revealUniforms.uRevealSoftness.value * halfFovHeight;
-
-  controls.update();
-  renderer.render(scene, camera);
-}
 
 // ─── START ───────────────────────────────────────────
 init();

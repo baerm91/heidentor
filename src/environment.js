@@ -58,4 +58,6 @@ export function createLighting(scene) {
   spotlightTop.shadow.bias = -0.0002;
   scene.add(spotlightTop);
   scene.add(spotlightTop.target);
+
+  return { hemi, keyLight, fillLight, spotlightTop };
 }

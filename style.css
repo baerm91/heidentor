@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom elegant scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(1, 1, 1, 0.4);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(201, 169, 110, 0.25);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(201, 169, 110, 0.55);
+}
+
+/* Firefox scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 169, 110, 0.25) rgba(1, 1, 1, 0.4);
+}
+
 @layer utilities {
   .liquid-glass {
     background: rgba(255, 255, 255, 0.01);
@@ -223,7 +250,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-dark);
+  background: radial-gradient(circle at center, #090b14 0%, var(--bg-dark) 100%);
   transition: opacity 0.8s var(--ease-out), visibility 0.8s;
 }
 
@@ -234,10 +261,25 @@ html, body {
 }
 
 .loading-content {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 20px;
+}
+
+.loading-content::before {
+  content: '';
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, rgba(201, 169, 110, 0.07) 0%, transparent 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: -1;
+  filter: blur(10px);
 }
 
 .loading-title {
@@ -807,151 +849,269 @@ body.alignment-mode #scene-canvas {
 }
 
 /* ============================================
-   RESPONSIVE
+   RESPONSIVE & MOBILE OVERRIDES
    ============================================ */
 
-@media (max-width: 600px) {
-  #top-bar {
-    top: 20px !important;
-    left: 20px !important;
-    padding: 0 !important;
-  }
-
-  #top-bar .logo-text h1 {
-    font-size: 1.1rem;
-  }
-
-  .hero-watermark-title {
-    padding-left: 6vw;
-    font-size: clamp(4.3rem, 20vw, 7.2rem);
-    letter-spacing: 0.03em;
-    transform: scaleX(1);
-  }
-
-  .station-title {
-    font-size: clamp(3rem, 14vw, 4.4rem);
-    line-height: 0.94;
-  }
-
-  .btn-glass span {
-    display: none;
-  }
-
-  .overlay-panel {
-    padding: 28px 22px;
-  }
-
-  .overlay-panel h2 {
-    font-size: 1.3rem;
-  }
+/* Base transitions for smooth viewport resizing */
+.station-text-panel,
+.station-video-panel,
+.hero-watermark-title,
+.station-dots-nav {
+  transition: all 0.5s var(--ease-out);
 }
 
-/* Milchiger Hintergrund fuer Textboxen (frosted glassmorphism) */
-.milky-glass-panel {
-  background: rgba(255, 255, 255, 0.08) !important;
-  backdrop-filter: blur(20px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  box-shadow: 
-    0 12px 40px 0 rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-  border-radius: var(--radius-lg);
-  padding: 24px;
-}
-
-/* ============================================
-   MOBILE RESPONSIVENESS OVERRIDES
-   ============================================ */
 @media (max-width: 768px) {
+  /* Loading Screen tweaks for mobile */
+  .loading-title {
+    font-size: clamp(2rem, 8vw, 2.5rem) !important;
+    letter-spacing: 0.02em !important;
+  }
+  
+  .loading-subtitle {
+    font-size: 0.85rem !important;
+  }
+  
+  .loading-bar-container {
+    width: 160px !important;
+  }
+
+  /* Watermark title typography to prevent horizontal clipping */
+  .hero-watermark-title {
+    padding-left: 0 !important;
+    text-align: center !important;
+    font-size: clamp(2rem, 11vw, 3.6rem) !important;
+    letter-spacing: 0.06em !important;
+    transform: none !important;
+  }
+
   /* Narrative text panels on mobile */
   .station-text-panel {
     left: 4% !important;
     right: 4% !important;
-    bottom: clamp(16px, 4vh, 32px) !important;
+    bottom: 16px !important;
     top: auto !important;
     width: 92% !important;
     max-width: none !important;
     transform: none !important;
-    max-height: 44vh !important;
+    max-height: 42vh !important; /* Slightly more compact to show 3D scene */
     overflow-y: auto !important;
     pointer-events: auto !important;
     
     /* Elegant fallback dark frosted glass for readability */
-    background: rgba(10, 11, 16, 0.76) !important;
-    backdrop-filter: blur(24px) saturate(1.3) !important;
-    -webkit-backdrop-filter: blur(24px) saturate(1.3) !important;
-    border: 1px solid rgba(255, 255, 255, 0.09) !important;
-    border-radius: 20px !important;
-    padding: 20px 22px !important;
-    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.75) !important;
+    background: rgba(8, 9, 13, 0.82) !important;
+    backdrop-filter: blur(28px) saturate(1.4) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(1.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 18px !important;
+    padding: 12px 14px !important; /* More compact padding */
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8) !important;
+  }
+
+  /* Prevent double padding / double glass morph borders in inner wrapper */
+  .station-text-panel .milky-glass-panel {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
   }
 
   /* Make title clean and smaller on mobile */
   .station-text-panel .station-title {
-    font-size: clamp(1.75rem, 8.5vw, 2.4rem) !important;
-    line-height: 0.95 !important;
+    font-size: clamp(1.05rem, 4.8vw, 1.35rem) !important; /* Slightly smaller to prevent wrap overflows */
+    line-height: 1.1 !important; /* Fixed line height to prevent overlap on wrapped title text */
     letter-spacing: -0.01em !important;
   }
 
   /* Spacing and divider inside text card */
   .station-text-panel .my-5 {
-    margin-top: 10px !important;
-    margin-bottom: 12px !important;
+    margin-top: 5px !important;
+    margin-bottom: 6px !important;
+  }
+  
+  .station-text-panel .my-5 div.rotate-45 {
+    width: 8px !important;
+    height: 8px !important;
   }
 
-  /* Compact description */
-  .station-text-panel p {
-    font-size: 13px !important;
-    line-height: 1.55 !important;
+  /* Compact description class instead of generic p styling */
+  .station-text-panel .station-description {
+    font-size: 11px !important; /* Extremely readable yet compact */
+    line-height: 1.4 !important;
     color: #dfdbd5 !important;
+    text-align: left !important; /* Left aligned is more natural on narrow devices */
   }
 
-  /* Detail sub-block */
+  /* Compact sub-description class */
+  .station-text-panel .station-sub-description {
+    font-size: 9.5px !important;
+    line-height: 1.35 !important;
+    color: #a19d96 !important;
+  }
+
+  /* Compact indicator box */
+  .station-text-panel .station-indicator-box {
+    margin-top: 6px !important;
+    padding: 6px 8px !important;
+    border-radius: 6px !important;
+    font-size: 9px !important;
+    line-height: 1.3 !important;
+  }
+
+  /* Detail sub-block spacing */
   .station-text-panel .mt-8 {
-    margin-top: 14px !important;
-    padding-top: 12px !important;
+    margin-top: 8px !important;
+    padding-top: 6px !important;
+  }
+  
+  .station-text-panel h4 {
+    font-size: 8.5px !important;
   }
 
-  /* Video Panel at the top */
+  /* Video Panel at the top - ensures it fits without obscuring middle scene */
   .station-video-panel {
     left: 4% !important;
     right: 4% !important;
-    top: clamp(65px, 9vh, 90px) !important;
+    top: clamp(60px, 8.5vh, 80px) !important;
     bottom: auto !important;
     width: 92% !important;
-    max-width: 440px !important;
+    max-width: 400px !important;
     height: auto !important;
     aspect-ratio: 16/9 !important;
     margin: 0 auto !important;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6) !important;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.7) !important;
   }
 
-  /* Hide labels on dots navigation to prevent overlapping */
+  /* Re-position dots navigation as a horizontal capsule pill at the top right to avoid text panel collision */
+  .station-dots-nav {
+    top: 18px !important;
+    right: 18px !important;
+    bottom: auto !important;
+    left: auto !important;
+    transform: none !important;
+    flex-direction: row !important;
+    padding: 8px 12px !important;
+    gap: 8px !important;
+    border-radius: 9999px !important;
+  }
+  
   .station-dots-nav .dot-label {
     display: none !important;
   }
-
-  /* Alignment calibration modal overlay */
-  .overlay {
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 16px !important;
+  
+  .station-dots-nav button {
+    padding: 2px !important;
   }
 
-  .overlay-panel {
-    width: 100% !important;
-    max-width: 380px !important;
-    padding: 24px 20px !important;
+  /* Compact Alignment Panel on mobile */
+  .alignment-panel-container {
+    border-radius: 18px !important;
+    padding: 14px !important;
+    gap: 10px !important;
     margin: 0 auto !important;
-    border-radius: 20px !important;
+    max-width: 350px !important;
   }
   
-  .overlay-panel h2 {
-    font-size: 1.25rem !important;
+  .alignment-panel-container h3 {
+    font-size: 11px !important;
+  }
+  
+  .alignment-panel-container p {
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+  }
+  
+  .alignment-panel-container .grid {
+    margin-top: 6px !important;
+    gap: 6px !important;
+  }
+  
+  .alignment-panel-container .grid > div {
+    padding: 5px 3px !important;
+  }
+  
+  .alignment-panel-container .grid > div .text-\[10px\] {
+    font-size: 8px !important;
+  }
+  
+  .alignment-panel-container .grid > div .text-xs {
+    font-size: 10px !important;
+  }
+  
+  .alignment-panel-container .grid > div .text-\[9px\] {
+    font-size: 7.5px !important;
+  }
+  
+  .alignment-panel-container .mt-3 {
+    margin-top: 6px !important;
+    padding: 6px !important;
+  }
+  
+  .alignment-panel-container .mt-3 span {
+    font-size: 10px !important;
+  }
+  
+  .alignment-panel-container button {
+    padding: 6px 12px !important;
+    font-size: 11px !important;
   }
 
-  .overlay-description {
-    font-size: 0.8rem !important;
-    margin-bottom: 18px !important;
+  .alignment-header {
+    padding: 6px 10px !important;
+    border-radius: 12px !important;
+    gap: 6px !important;
+  }
+  .alignment-header span {
+    font-size: 1.1rem !important;
+  }
+  .alignment-header h1 {
+    font-size: 0.85rem !important;
+  }
+  .alignment-header p {
+    font-size: 7px !important;
+  }
+
+  /* Compact Scroll Prompt Capsule on Mobile */
+  .scroll-prompt-capsule {
+    padding: 5px 10px !important;
+    bottom: 8px !important;
+  }
+  .scroll-prompt-text {
+    font-size: 0 !important; /* Hide long desktop text */
+  }
+  .scroll-prompt-text::after {
+    content: "Scrollen ↓";
+    font-size: 8px !important;
+    font-weight: 700;
+  }
+}
+
+/* Extra mobile styles for ultra small screens (e.g. iPhone SE, width <= 360px) */
+@media (max-width: 360px) {
+  .station-text-panel {
+    bottom: 8px !important;
+    max-height: 38vh !important;
+    padding: 10px 12px !important;
+  }
+
+  .station-text-panel .station-title {
+    font-size: 0.95rem !important;
+  }
+
+  .station-text-panel .station-description {
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+  }
+  
+  .station-dots-nav {
+    top: 12px !important;
+    right: 12px !important;
+    padding: 6px 10px !important;
+    gap: 6px !important;
+  }
+  
+  .scroll-prompt-capsule {
+    padding: 4px 8px !important;
   }
 }
