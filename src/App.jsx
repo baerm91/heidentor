@@ -7,6 +7,7 @@ import { StationNavDots } from './components/StationNavDots.jsx';
 import { VideoOverlay } from './components/VideoOverlay.jsx';
 import { BackgroundLayer } from './components/BackgroundLayer.jsx';
 import { NarrativeTextBlock } from './components/NarrativeTextBlock.jsx';
+import { AnnotationOverlay } from './components/AnnotationOverlay.jsx';
 import { EditorSidebar } from './components/editor/EditorSidebar.jsx';
 import { useStationConfigFile } from './useStationConfigFile.js';
 import { audioManager } from './utils/audioManager.js';
@@ -119,32 +120,41 @@ function App() {
             isEditorMode={appState.stationMode === 'editor'}
             onDragStart={editor.setDragState}
           />
+
+          <AnnotationOverlay
+            activeStation={activeStation}
+            appState={appState}
+            isEditorMode={appState.stationMode === 'editor'}
+            onDragAnnotation={editor.handleDragAnnotation}
+          />
         </>
       )}
 
       {/* ─── MODE 1: SCROLLABLE LANDING PAGE (VISITOR MODE) ─── */}
       {appState.stationMode === 'scroll' && (
         <>
-          {/* Right Navigation Dot List (Fixed, visible for station 2+) */}
-          {appState.currentStationIndex > 0 && (
-            <StationNavDots
-              stations={appState.stations}
-              currentStationIndex={appState.currentStationIndex}
-              onScrollToStation={scrollToStation}
-            />
-          )}
+          {/* Right Navigation Dot List */}
+          <StationNavDots
+            stations={appState.stations}
+            currentStationIndex={appState.currentStationIndex}
+            onScrollToStation={scrollToStation}
+          />
+
+          <div
+            className={`scroll-prompt-capsule fixed left-1/2 bottom-8 -translate-x-1/2 z-40 bg-[#0a0b10]/60 border border-amber-500/20 backdrop-blur-md rounded-full px-5 py-2.5 text-[9px] uppercase font-bold tracking-[0.2em] text-[#c9a96e] animate-bounce pointer-events-auto shadow-[0_4px_20px_rgba(201,169,110,0.15)] flex items-center gap-2 transition-all duration-700 ease-out hover:border-amber-500/40 hover:shadow-[0_4px_25px_rgba(201,169,110,0.25)] ${
+              (appState.scrollProgress ?? 0) < 0.08 && !activeStation?.freeNavigation
+                ? 'opacity-100 translate-y-0'
+                : 'opacity-0 translate-y-3 pointer-events-none'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+            <span className="scroll-prompt-text">Scrollen Sie nach unten · Zeitreise starten ↓</span>
+          </div>
 
           {/* Scroll Spacers (Generates the scroll height of the page) */}
           <div className="w-full relative pointer-events-none">
             {appState.stations.map((s, idx) => (
-              <div key={`spacer-${s.id}`} className="h-screen w-full flex items-end justify-center pb-8">
-                {idx === 0 && (
-                  <div className="scroll-prompt-capsule bg-[#0a0b10]/60 border border-amber-500/20 backdrop-blur-md rounded-full px-5 py-2.5 text-[9px] uppercase font-bold tracking-[0.2em] text-[#c9a96e] animate-bounce pointer-events-auto shadow-[0_4px_20px_rgba(201,169,110,0.15)] flex items-center gap-2 transition-all duration-300 hover:border-amber-500/40 hover:shadow-[0_4px_25px_rgba(201,169,110,0.25)]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                    <span className="scroll-prompt-text">Scrollen Sie nach unten · Zeitreise starten ↓</span>
-                  </div>
-                )}
-              </div>
+              <div key={`spacer-${s.id}`} className="h-screen w-full" />
             ))}
           </div>
         </>
@@ -157,6 +167,7 @@ function App() {
           editingIndex={editor.editingIndex}
           activeAccordionIndex={editor.activeAccordionIndex}
           activeImageAccordion={editor.activeImageAccordion}
+          placingAnnotationId={editor.placingAnnotationId}
           configFile={configFile}
           onSetActiveAccordion={editor.setActiveAccordionIndex}
           onSetActiveImageAccordion={editor.setActiveImageAccordion}
@@ -169,6 +180,12 @@ function App() {
           onToggleLightFixedToCamera={editor.handleToggleLightFixedToCamera}
           onUpdateImage={editor.handleUpdateStationImage}
           onUploadImage={editor.handleLocal3DImageUpload}
+          onAddAnnotation={editor.handleAddAnnotation}
+          onDeleteAnnotation={editor.handleDeleteAnnotation}
+          onUpdateAnnotation={editor.handleUpdateAnnotation}
+          onCaptureAnnotation={editor.handleCaptureAnnotation}
+          onPlaceAnnotationInScene={editor.handlePlaceAnnotationInScene}
+          onUploadAnnotationImages={editor.handleAnnotationImageUpload}
           onLocalBgUpload={editor.handleLocalImageUpload}
           getBgSelectValue={editor.getBgSelectValue}
           onCancel={editor.cancelEditor}
@@ -176,6 +193,12 @@ function App() {
           onRealign={handleRealign}
           onRestoreDefaults={editor.handleRestoreDefaults}
           onAddStation={editor.handleAddStation}
+          localModelName={appState.localModelName}
+          localModelStatus={appState.localModelStatus}
+          localModelError={editor.localModelPickerError || appState.localModelError}
+          onChooseLocalModelFolder={editor.handleLocalModelFolder}
+          onLocalModelFiles={editor.handleLocalModelFiles}
+          onRemoveLocalModel={editor.handleRemoveLocalModel}
         />
       )}
     </div>

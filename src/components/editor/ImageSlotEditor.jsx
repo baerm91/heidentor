@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { IMAGE_SLOT_POSITION_FIELDS } from '../../constants.js';
 
 export function ImageSlotEditor({ img, imgIndex, stationIndex, isActive, onToggle, onUpdateImage, onUploadImage }) {
   const getImageSelectValue = (imgUrl) => {
@@ -75,11 +76,7 @@ export function ImageSlotEditor({ img, imgIndex, stationIndex, isActive, onToggl
             <>
               {/* Position posX, posY, posZ */}
               <div className="grid grid-cols-3 gap-2">
-                {[
-                  { field: 'posX', label: 'Pos X', min: -15, max: 15, fallback: 0 },
-                  { field: 'posY', label: 'Pos Y', min: 0, max: 15, fallback: 3.5 },
-                  { field: 'posZ', label: 'Pos Z', min: -15, max: 15, fallback: 0 }
-                ].map(({ field, label, min, max, fallback }) => (
+                {IMAGE_SLOT_POSITION_FIELDS.map(({ field, label, min, max, fallback }) => (
                   <div key={field} className="flex flex-col gap-0.5">
                     <div className="flex justify-between text-[8px] text-zinc-500 font-bold uppercase">
                       <span>{label}</span>

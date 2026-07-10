@@ -68,6 +68,31 @@ export const normalizeStations = (stations) => {
     videoHeight: typeof station.videoHeight === 'number' ? station.videoHeight : 18,
     textLayer: station.textLayer ?? "front",
     milkyBg: !!station.milkyBg,
+    freeNavigation: typeof station.freeNavigation === 'boolean' ? station.freeNavigation : index === stations.length - 1,
+    showAnnotations: typeof station.showAnnotations === 'boolean' ? station.showAnnotations : true,
+    annotations: Array.isArray(station.annotations) ? station.annotations.map((annotation, annotationIndex) => ({
+      id: annotation.id ?? `annotation_${index}_${annotationIndex}`,
+      title: annotation.title ?? `Annotation ${annotationIndex + 1}`,
+      text: annotation.text ?? "",
+      position: annotation.position ? {
+        x: typeof annotation.position.x === 'number' ? annotation.position.x : 0,
+        y: typeof annotation.position.y === 'number' ? annotation.position.y : 3.5,
+        z: typeof annotation.position.z === 'number' ? annotation.position.z : 0
+      } : { x: 0, y: 3.5, z: 0 },
+      cameraPos: annotation.cameraPos ? {
+        x: typeof annotation.cameraPos.x === 'number' ? annotation.cameraPos.x : (station.cameraPos?.x ?? 0),
+        y: typeof annotation.cameraPos.y === 'number' ? annotation.cameraPos.y : (station.cameraPos?.y ?? 10),
+        z: typeof annotation.cameraPos.z === 'number' ? annotation.cameraPos.z : (station.cameraPos?.z ?? 22)
+      } : (station.cameraPos ?? { x: 0, y: 10, z: 22 }),
+      cameraTarget: annotation.cameraTarget ? {
+        x: typeof annotation.cameraTarget.x === 'number' ? annotation.cameraTarget.x : (station.cameraTarget?.x ?? 0),
+        y: typeof annotation.cameraTarget.y === 'number' ? annotation.cameraTarget.y : (station.cameraTarget?.y ?? 3.5),
+        z: typeof annotation.cameraTarget.z === 'number' ? annotation.cameraTarget.z : (station.cameraTarget?.z ?? 0)
+      } : (station.cameraTarget ?? { x: 0, y: 3.5, z: 0 }),
+      images: Array.isArray(annotation.images)
+        ? annotation.images.slice(0, 4).filter(Boolean)
+        : []
+    })) : [],
     lightIntensity: typeof station.lightIntensity === 'number' ? station.lightIntensity : 1.0,
     shadowDiffuse: typeof station.shadowDiffuse === 'number' ? station.shadowDiffuse : 1.0,
     lightHemiEnabled: typeof station.lightHemiEnabled === 'boolean' ? station.lightHemiEnabled : true,
@@ -165,5 +190,12 @@ export const loadDraftStations = () => {
 };
 
 export const saveDraftStations = (stations) => {
-  localStorage.setItem(STATIONS_DRAFT_KEY, JSON.stringify(normalizeStations(stations)));
+  try {
+    localStorage.setItem(STATIONS_DRAFT_KEY, JSON.stringify(normalizeStations(stations)));
+  } catch (error) {
+    if (error?.name === 'QuotaExceededError') {
+      throw new Error('Die Konfiguration ist für den lokalen Browser-Speicher zu groß. Entfernen oder verkleinern Sie hochgeladene Bilder und versuchen Sie es erneut.');
+    }
+    throw new Error(`Die Konfiguration konnte nicht lokal gespeichert werden: ${error.message}`);
+  }
 };

@@ -97,7 +97,7 @@ function pauseAutoRotate() {
   controls.autoRotate = false;
   clearTimeout(autoRotateTimer);
   autoRotateTimer = setTimeout(() => {
-    if (ctx.isRevealMode) {
+    if (ctx.isRevealMode && window.appState?.stationMode !== 'editor' && controls.enabled) {
       controls.autoRotate = true;
     }
   }, 5000);
@@ -151,6 +151,18 @@ ctx.actions.cancelPortalTransition = cancelPortalTransition;
 ctx.actions.playInitialIntro = playInitialIntro;
 
 initStationImages();
+
+function syncScrollControlsForStation(station) {
+  if (window.appState.stationMode !== 'scroll') return;
+
+  const canNavigateFreely = !!station?.freeNavigation;
+  controls.enabled = canNavigateFreely;
+  controls.autoRotate = false;
+
+  if (!canNavigateFreely && window.appState.hasUserManipulatedCamera) {
+    window.appState.update({ hasUserManipulatedCamera: false });
+  }
+}
 
 // ─── LOADING & INITIALIZATION ─────────────────────────
 async function init() {
@@ -562,7 +574,7 @@ function enterRevealMode() {
     ctx.revealUniforms.uPortalTint.value = 0;
   }
 
-  controls.enabled = false;
+  syncScrollControlsForStation(window.appState.stations?.[0]);
   controls.autoRotate = false;
 
   if (shouldPlayIntro) {
@@ -609,27 +621,8 @@ function applyScrollProgress(progress) {
     if (window.appState.currentStationIndex !== 0) {
       window.appState.update({ currentStationIndex: 0 });
     }
+    syncScrollControlsForStation(onlyStation);
     return;
-  }
-
-  const lastStationThreshold = 0.98;
-  const hasArrivedAtEnd = clampedProgress >= lastStationThreshold && camera.position.distanceTo(ctx.targetCameraPos) < 0.1;
-
-  if (hasArrivedAtEnd) {
-    if (!controls.enabled && window.appState.stationMode === 'scroll') {
-      controls.enabled = true;
-      controls.autoRotate = false;
-      const lastStation = stations[N - 1];
-      controls.target.set(lastStation.cameraTarget.x, lastStation.cameraTarget.y, lastStation.cameraTarget.z);
-    }
-  } else {
-    if (window.appState.hasUserManipulatedCamera) {
-      window.appState.update({ hasUserManipulatedCamera: false });
-    }
-    if (controls.enabled && window.appState.stationMode === 'scroll') {
-      controls.enabled = false;
-      controls.autoRotate = false;
-    }
   }
 
   const normProgress = clampedProgress;
@@ -845,6 +838,8 @@ function updateActiveStationUi(t, currentStation, nextStation, index, nextIndex)
     window.appState.update({ viewMode: activeStation.viewMode });
   }
 
+  syncScrollControlsForStation(activeStation);
+
   if (window.appState.currentStationIndex !== activeStationIndex) {
     window.appState.update({ currentStationIndex: activeStationIndex });
     updateStationImages(activeStation.images);
@@ -855,6 +850,7 @@ function updateActiveStationUi(t, currentStation, nextStation, index, nextIndex)
 // ─── EVENTS ──────────────────────────────────────────
 let dragStart = { x: 0, y: 0 };
 let dragTime = 0;
+let lastPlacementClickTime = 0;
 
 canvas.addEventListener('mousedown', (e) => {
   dragStart.x = e.clientX;
@@ -862,18 +858,81 @@ canvas.addEventListener('mousedown', (e) => {
   dragTime = Date.now();
 });
 
+function pickAnnotationPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  const mx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  const my = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  ctx.raycaster.setFromCamera(new THREE.Vector2(mx, my), camera);
+
+  const pickTargets = [ctx.ruinModel, ctx.reconModel, ctx.localModel].filter((model) => model?.visible);
+  const hits = pickTargets.length > 0 ? ctx.raycaster.intersectObjects(pickTargets, true) : [];
+  const point = hits[0]?.point?.clone();
+
+  if (point) {
+    if (hits[0]?.face && hits[0]?.object) {
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(hits[0].object.matrixWorld);
+      const normal = hits[0].face.normal.clone().applyMatrix3(normalMatrix).normalize();
+      point.addScaledVector(normal, 0.08);
+    }
+    return point;
+  }
+
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const groundPoint = new THREE.Vector3();
+  if (ctx.raycaster.ray.intersectPlane(groundPlane, groundPoint)) {
+    groundPoint.y += 0.08;
+    return groundPoint;
+  }
+
+  return ctx.controls.target.clone();
+}
+
+function handleAnnotationPlacementClick(event) {
+  if (!ctx.pendingAnnotationPlacement) return false;
+
+  const point = pickAnnotationPoint(event);
+  const placement = {
+    position: { x: point.x, y: point.y, z: point.z },
+    cameraPos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+    cameraTarget: { x: ctx.controls.target.x, y: ctx.controls.target.y, z: ctx.controls.target.z }
+  };
+  const onPlace = ctx.pendingAnnotationPlacement;
+  ctx.pendingAnnotationPlacement = null;
+  document.body.classList.remove('annotation-placement-mode');
+  onPlace(placement);
+  return true;
+}
+
 canvas.addEventListener('mouseup', (e) => {
+  const dx = e.clientX - dragStart.x;
+  const dy = e.clientY - dragStart.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const elapsed = Date.now() - dragTime;
+
+  if (ctx.pendingAnnotationPlacement && dist <= 6 && elapsed <= 500) {
+    if (handleAnnotationPlacementClick(e)) return;
+  }
+
   if (window.appState.mode !== 'aligning') return;
+
+  if (dist > 6 || elapsed > 300) {
+    return;
+  }
+  handleAlignClick(e);
+});
+
+canvas.addEventListener('pointerup', (e) => {
+  if (!ctx.pendingAnnotationPlacement) return;
+  if (Date.now() - lastPlacementClickTime < 50) return;
 
   const dx = e.clientX - dragStart.x;
   const dy = e.clientY - dragStart.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
   const elapsed = Date.now() - dragTime;
 
-  if (dist > 6 || elapsed > 300) {
-    return;
+  if (dist <= 6 && elapsed <= 500 && handleAnnotationPlacementClick(e)) {
+    lastPlacementClickTime = Date.now();
   }
-  handleAlignClick(e);
 });
 
 function handleMove(clientX, clientY) {
@@ -890,7 +949,6 @@ function handleMove(clientX, clientY) {
 }
 
 window.addEventListener('pointermove', (e) => handleMove(e.clientX, e.clientY));
-window.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
 
 document.addEventListener('pointerleave', () => {
   ctx.isMouseOutside = true;

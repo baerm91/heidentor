@@ -37,7 +37,8 @@ export const NEW_STATION_TEMPLATE = {
   videoWidth: 28,
   videoHeight: 18,
   textLayer: 'front',
-  milkyBg: false
+  milkyBg: false,
+  freeNavigation: false
 };
 
 export const DEFAULT_IMAGE_SLOT = {
@@ -48,6 +49,12 @@ export const DEFAULT_IMAGE_SLOT = {
   scale: 1.0,
   fixToCamera: false
 };
+
+export const IMAGE_SLOT_POSITION_FIELDS = [
+  { field: 'posX', label: 'Pos X', min: -15, max: 15, fallback: 0 },
+  { field: 'posY', label: 'Pos Y', min: 0, max: 15, fallback: 3.5 },
+  { field: 'posZ', label: 'Pos Z', min: -15, max: 15, fallback: 0 }
+];
 
 // Lookup map for field → window.appState setter dispatch
 // Used by useEditorActions to replace the if-else chain in handleUpdateStationText

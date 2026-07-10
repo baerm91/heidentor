@@ -37,16 +37,7 @@
       },
       "revealRadius": 0.26,
       "revealSoftness": 0.05,
-      "portalRadius": 3.2,
-      "portalSoftness": 0.2,
-      "portalTransitionDuration": 2.8,
-      "portalMouseStart": 0.2,
-      "portalRuinFadeEnd": 0.22,
-      "portalRevealRuinFadeStart": 0.18,
-      "portalRevealRuinFadeEnd": 0.85,
-      "portalReconFadeStart": 0.08,
-      "portalReconFadeEnd": 0.46,
-      "bgImage": "roman_blueprint_bg.png",
+      "bgImage": "",
       "textX": 10,
       "textY": 24,
       "subTitle": "",
@@ -56,57 +47,10 @@
       "videoY": 22,
       "videoWidth": 28,
       "videoHeight": 18,
-      "textLayer": "front",
+      "textLayer": "behind",
       "milkyBg": false,
-      "freeNavigation": false,
-      "showAnnotations": true,
-      "annotations": [
-        {
-          "id": "annotation_1783164980521",
-          "title": "Annotation 1",
-          "text": "blablabla",
-          "position": {
-            "x": -0.21384764056093408,
-            "y": 1.5617999306591674,
-            "z": 0.10162417627604514
-          },
-          "cameraPos": {
-            "x": 3.514533253914508,
-            "y": 2.1760581602677376,
-            "z": 0.11961906967939312
-          },
-          "cameraTarget": {
-            "x": 2.2848420713036743,
-            "y": 1.8953358997653211,
-            "z": 0.10425172582936798
-          },
-          "images": []
-        }
-      ],
-      "lightIntensity": 0.9,
-      "shadowDiffuse": 4,
-      "lightHemiEnabled": true,
-      "lightKeyEnabled": true,
-      "lightKeyFixedToCamera": false,
-      "lightKeyPos": {
-        "x": 8,
-        "y": 16,
-        "z": 10
-      },
-      "lightFillEnabled": true,
-      "lightFillFixedToCamera": false,
-      "lightFillPos": {
-        "x": -8,
-        "y": 12,
-        "z": -10
-      },
-      "lightSpotEnabled": false,
-      "lightSpotFixedToCamera": false,
-      "lightSpotPos": {
-        "x": 0,
-        "y": 15,
-        "z": 0
-      },
+      "lightIntensity": 1,
+      "shadowDiffuse": 1,
       "images": [
         {
           "url": "",
@@ -151,15 +95,6 @@
       },
       "revealRadius": 0.26,
       "revealSoftness": 0.05,
-      "portalRadius": 3.2,
-      "portalSoftness": 0.2,
-      "portalTransitionDuration": 2.8,
-      "portalMouseStart": 0.2,
-      "portalRuinFadeEnd": 0.22,
-      "portalRevealRuinFadeStart": 0.18,
-      "portalRevealRuinFadeEnd": 0.85,
-      "portalReconFadeStart": 0.08,
-      "portalReconFadeEnd": 0.46,
       "bgImage": "roman_blueprint_bg.png",
       "textX": 49,
       "textY": 20,
@@ -170,35 +105,10 @@
       "videoY": 22,
       "videoWidth": 28,
       "videoHeight": 18,
-      "textLayer": "front",
+      "textLayer": "behind",
       "milkyBg": false,
-      "freeNavigation": false,
-      "showAnnotations": true,
-      "annotations": [],
       "lightIntensity": 1,
       "shadowDiffuse": 1,
-      "lightHemiEnabled": true,
-      "lightKeyEnabled": true,
-      "lightKeyFixedToCamera": false,
-      "lightKeyPos": {
-        "x": 8,
-        "y": 16,
-        "z": 10
-      },
-      "lightFillEnabled": true,
-      "lightFillFixedToCamera": false,
-      "lightFillPos": {
-        "x": -8,
-        "y": 12,
-        "z": -10
-      },
-      "lightSpotEnabled": true,
-      "lightSpotFixedToCamera": false,
-      "lightSpotPos": {
-        "x": 0,
-        "y": 15,
-        "z": 0
-      },
       "images": [
         {
           "url": "",
@@ -230,7 +140,7 @@
       "id": "station_2",
       "title": "TWIN-IT",
       "description": "Im Rahmen des EU-Projekts TWIN-IT haben die Landessammlungen Niederösterreich sich mit verschiedenen 3D-Modellen beworben und damit Österreich auf einem internationalen Parkett vertreten.  ",
-      "viewMode": "recon",
+      "viewMode": "portal",
       "cameraPos": {
         "x": -4.857224523354747,
         "y": 0.3547162565176043,
@@ -241,7 +151,7 @@
         "y": 3.5917080877290872,
         "z": 0.17268399847421897
       },
-      "revealRadius": 0.28,
+      "revealRadius": 1.4,
       "revealSoftness": 0.05,
       "portalRadius": 3.2,
       "portalSoftness": 0.2,
@@ -253,44 +163,19 @@
       "portalReconFadeStart": 0.08,
       "portalReconFadeEnd": 0.46,
       "bgImage": "",
-      "textX": 10,
-      "textY": 35,
+      "textX": 9,
+      "textY": 48,
       "subTitle": "",
       "subDescription": "",
       "videoUrl": "https://iframe.mediadelivery.net/embed/269044/f0807cdd-efaf-4fb2-b8da-bae26ba7f161?autoplay=false",
-      "videoX": 58,
-      "videoY": 35,
+      "videoX": 60,
+      "videoY": 48,
       "videoWidth": 32,
       "videoHeight": 18,
       "textLayer": "front",
-      "milkyBg": false,
-      "freeNavigation": false,
-      "showAnnotations": true,
-      "annotations": [],
+      "milkyBg": true,
       "lightIntensity": 1,
       "shadowDiffuse": 1,
-      "lightHemiEnabled": true,
-      "lightKeyEnabled": true,
-      "lightKeyFixedToCamera": false,
-      "lightKeyPos": {
-        "x": 8,
-        "y": 16,
-        "z": 10
-      },
-      "lightFillEnabled": true,
-      "lightFillFixedToCamera": false,
-      "lightFillPos": {
-        "x": -8,
-        "y": 12,
-        "z": -10
-      },
-      "lightSpotEnabled": true,
-      "lightSpotFixedToCamera": false,
-      "lightSpotPos": {
-        "x": 0,
-        "y": 15,
-        "z": 0
-      },
       "images": [
         {
           "url": "",
@@ -324,14 +209,14 @@
       "description": "Bewegen Sie die Maus über die Ruine, um verborgene Bauteile des ursprünglichen Heidentors sichtbar zu machen. Die Ansicht zeigt, was vom Bau des 4. Jahrhunderts n. Chr. einst vorhanden war — und was davon bis heute erhalten blieb.",
       "viewMode": "reveal",
       "cameraPos": {
-        "x": 7.7023637888507706,
-        "y": 4.268611878764572,
-        "z": -2.4379019880610984
+        "x": -7.744003428600381,
+        "y": 2.4002913551501686,
+        "z": -8.704833717267801
       },
       "cameraTarget": {
-        "x": 0.558334989097504,
-        "y": 2.116437748239701,
-        "z": -2.159783257176145
+        "x": -2.8606284256177745,
+        "y": 1.9050987773561392,
+        "z": 1.8560708135446788
       },
       "revealRadius": 0.28,
       "revealSoftness": 0.01,
@@ -345,8 +230,8 @@
       "portalReconFadeStart": 0.08,
       "portalReconFadeEnd": 0.46,
       "bgImage": "",
-      "textX": 63,
-      "textY": 25,
+      "textX": 66,
+      "textY": 21,
       "subTitle": "",
       "subDescription": "",
       "videoUrl": "",
@@ -354,35 +239,11 @@
       "videoY": 22,
       "videoWidth": 28,
       "videoHeight": 18,
-      "textLayer": "front",
+      "textLayer": "behind",
       "milkyBg": false,
       "freeNavigation": true,
-      "showAnnotations": true,
-      "annotations": [],
       "lightIntensity": 1,
       "shadowDiffuse": 1,
-      "lightHemiEnabled": true,
-      "lightKeyEnabled": true,
-      "lightKeyFixedToCamera": false,
-      "lightKeyPos": {
-        "x": 8,
-        "y": 16,
-        "z": 10
-      },
-      "lightFillEnabled": true,
-      "lightFillFixedToCamera": false,
-      "lightFillPos": {
-        "x": -8,
-        "y": 12,
-        "z": -10
-      },
-      "lightSpotEnabled": true,
-      "lightSpotFixedToCamera": false,
-      "lightSpotPos": {
-        "x": 0,
-        "y": 15,
-        "z": 0
-      },
       "images": [
         {
           "url": "",

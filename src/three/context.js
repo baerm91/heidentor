@@ -11,6 +11,9 @@ export const ctx = {
   // Models and alignment
   ruinModel: null,
   reconModel: null,
+  localModel: null,
+  localModelObjectUrls: [],
+  localModelLoadId: 0,
   ruinOffsetY: 0,
   reconOffsetY: 0,
   isModelAligned: false,
@@ -104,6 +107,7 @@ export const ctx = {
   transitionProgress: { value: 0.0 },
   portalTransitionProgress: { value: 0.0 },
   scrollTransitionTween: null,
+  flyToTransitionTween: null,
   portalTransitionTween: null,
   activePortalTransition: null,
   previousScrollProgress: 0,
@@ -118,6 +122,7 @@ export const ctx = {
   },
   alignMarkers: [],
   alignLines: [],
+  pendingAnnotationPlacement: null,
   
   // Cross-module actions
   actions: {

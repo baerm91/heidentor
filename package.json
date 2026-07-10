@@ -4,8 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "prepare-codecs": "node scripts/copy-three-codecs.mjs",
+    "predev": "npm run prepare-codecs",
     "dev": "vite --port 3005",
-    "prebuild": "node scripts/verify-lfs-assets.mjs",
+    "prebuild": "npm run prepare-codecs && node scripts/verify-lfs-assets.mjs",
     "build": "vite build",
     "postbuild": "node scripts/copy-static-assets.mjs",
     "preview": "vite preview"

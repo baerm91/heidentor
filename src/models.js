@@ -20,13 +20,21 @@ function loadGLTF(url, manager) {
 /**
  * Center and normalize a model to fit within a reasonable size
  */
-function normalizeModel(model, targetSize = 10) {
+export function normalizeModel(model, targetSize = 10) {
   model.updateMatrixWorld(true);
   
   const box = new THREE.Box3().setFromObject(model);
+  if (box.isEmpty()) {
+    throw new Error('Das 3D-Modell enthält keine darstellbare Geometrie.');
+  }
+
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
+  if (!Number.isFinite(maxDim) || maxDim < 1e-6) {
+    throw new Error('Das 3D-Modell hat keine gültige räumliche Ausdehnung.');
+  }
+
   const scale = targetSize / maxDim;
 
   // Create wrapper group

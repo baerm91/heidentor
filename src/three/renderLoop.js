@@ -80,7 +80,9 @@ export function animate() {
         ctx.actions.applyScrollProgress(ctx.visualScrollProgress);
       }
 
-      if (ctx.visualScrollProgress < 0.98 || !window.appState.hasUserManipulatedCamera) {
+      const activeStation = window.appState.stations?.[window.appState.currentStationIndex];
+      const shouldFollowScrollCamera = !activeStation?.freeNavigation || !window.appState.hasUserManipulatedCamera;
+      if (shouldFollowScrollCamera) {
         const camDist = ctx.camera.position.distanceTo(ctx.targetCameraPos);
         const camLerp = THREE.MathUtils.lerp(0.06, 0.35, THREE.MathUtils.clamp(camDist / 12, 0, 1));
         ctx.camera.position.lerp(ctx.targetCameraPos, camLerp);

@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
-import { DEFAULT_LIGHT_POSITIONS, FIELD_TO_STATE_SETTER, LIGHT_POS_SETTERS, KNOWN_BG_IMAGES } from '../constants.js';
+import { FIELD_TO_STATE_SETTER, LIGHT_POS_SETTERS, KNOWN_BG_IMAGES } from '../constants.js';
 import { defaultStations } from '../stations.js';
+import {
+  cloneStationData,
+  createAnnotation,
+  createImageSlots,
+  createStation,
+  getDefaultLightPosition,
+  updateAnnotationById,
+  updateStationAnnotations,
+  updateStationAt
+} from '../utils/stationEditing.js';
 
 export function useEditorActions(appState) {
   const [editingStations, setEditingStations] = useState([]);
@@ -8,6 +18,8 @@ export function useEditorActions(appState) {
   const [activeAccordionIndex, setActiveAccordionIndex] = useState(null);
   const [activeImageAccordion, setActiveImageAccordion] = useState(0);
   const [dragState, setDragState] = useState(null);
+  const [localModelPickerError, setLocalModelPickerError] = useState('');
+  const [placingAnnotationId, setPlacingAnnotationId] = useState(null);
 
   // Mouse move and up handlers for dragging the text box in the editor
   useEffect(() => {
@@ -17,17 +29,12 @@ export function useEditorActions(appState) {
       const deltaYPercent = ((e.clientY - dragState.startY) / window.innerHeight) * 100;
       const newX = Math.max(2, Math.min(85, Math.round(dragState.startValueX + deltaXPercent)));
       const newY = Math.max(2, Math.min(85, Math.round(dragState.startValueY + deltaYPercent)));
-      const updated = [...editingStations];
-      if (updated[editingIndex]) {
+      setEditingStations((currentStations) => updateStationAt(currentStations, editingIndex, (station) => {
         if (dragState.type === 'video') {
-          updated[editingIndex].videoX = newX;
-          updated[editingIndex].videoY = newY;
-        } else {
-          updated[editingIndex].textX = newX;
-          updated[editingIndex].textY = newY;
+          return { ...station, videoX: newX, videoY: newY };
         }
-        setEditingStations(updated);
-      }
+        return { ...station, textX: newX, textY: newY };
+      }));
     };
     const handleMouseUp = () => setDragState(null);
     window.addEventListener('mousemove', handleMouseMove);
@@ -36,23 +43,36 @@ export function useEditorActions(appState) {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [dragState, editingStations, editingIndex]);
+  }, [dragState, editingIndex]);
+
+  useEffect(() => () => {
+    window.appState?.cancelAnnotationPlacement?.();
+  }, []);
 
   const enterEditorMode = () => {
-    const currentStations = JSON.parse(JSON.stringify(appState.stations));
+    const currentStations = cloneStationData(appState.stations);
     setEditingStations(currentStations);
     setEditingIndex(appState.currentStationIndex);
     window.appState?.setStationMode?.('editor');
   };
 
   const saveAndExitEditor = () => {
-    window.appState?.saveStations?.(editingStations);
+    window.appState?.cancelAnnotationPlacement?.();
+    setPlacingAnnotationId(null);
+    try {
+      window.appState?.saveStations?.(editingStations);
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
     if (window.location.pathname === '/edits') return;
     window.appState?.setStationMode?.('scroll');
     document.body.style.overflow = 'auto';
   };
 
   const cancelEditor = () => {
+    window.appState?.cancelAnnotationPlacement?.();
+    setPlacingAnnotationId(null);
     if (window.location.pathname === '/edits') {
       window.location.href = '/';
       return;
@@ -64,16 +84,113 @@ export function useEditorActions(appState) {
   const handleCaptureCamera = (index) => {
     const coords = window.appState?.captureCamera?.();
     if (coords) {
-      const updated = [...editingStations];
-      updated[index].cameraPos = coords.cameraPos;
-      updated[index].cameraTarget = coords.cameraTarget;
-      setEditingStations(updated);
+      setEditingStations((currentStations) => updateStationAt(currentStations, index, (station) => ({
+        ...station,
+        cameraPos: coords.cameraPos,
+        cameraTarget: coords.cameraTarget
+      })));
     }
+  };
+
+  const handleAddAnnotation = (stationIndex) => {
+    const capture = window.appState?.captureAnnotationContext?.() || window.appState?.captureCamera?.();
+    const station = editingStations[stationIndex];
+    if (!station) return;
+    const annotations = Array.isArray(station.annotations) ? [...station.annotations] : [];
+    annotations.push(createAnnotation(annotations, station, capture));
+    setEditingStations((currentStations) => updateStationAt(currentStations, stationIndex, (currentStation) => ({
+      ...currentStation,
+      annotations,
+      showAnnotations: true
+    })));
+    setEditingIndex(stationIndex);
+    window.appState?.flyToStation?.(station, stationIndex);
+  };
+
+  const handleDeleteAnnotation = (stationIndex, annotationId) => {
+    setEditingStations((currentStations) => updateStationAnnotations(
+      currentStations,
+      stationIndex,
+      (annotations) => annotations.filter((annotation) => annotation.id !== annotationId)
+    ));
+  };
+
+  const handleUpdateAnnotation = (stationIndex, annotationId, field, value) => {
+    setEditingStations((currentStations) => updateAnnotationById(
+      currentStations,
+      stationIndex,
+      annotationId,
+      (annotation) => ({ ...annotation, [field]: value })
+    ));
+  };
+
+  const handleCaptureAnnotation = (stationIndex, annotationId) => {
+    const capture = window.appState?.captureAnnotationContext?.();
+    if (!capture) return;
+    setEditingStations((currentStations) => updateAnnotationById(
+      currentStations,
+      stationIndex,
+      annotationId,
+      (annotation) => ({
+        ...annotation,
+        position: capture.position,
+        cameraPos: capture.cameraPos,
+        cameraTarget: capture.cameraTarget
+      })
+    ));
+  };
+
+  const handlePlaceAnnotationInScene = (stationIndex, annotationId) => {
+    if (placingAnnotationId === annotationId) {
+      window.appState?.cancelAnnotationPlacement?.();
+      setPlacingAnnotationId(null);
+      return;
+    }
+
+    const station = editingStations[stationIndex];
+    if (station) {
+      setEditingIndex(stationIndex);
+      window.appState?.flyToStation?.(station, stationIndex);
+    }
+
+    setPlacingAnnotationId(annotationId);
+    window.appState?.startAnnotationPlacement?.((placement) => {
+      setEditingStations((currentStations) => updateStationAt(currentStations, stationIndex, (currentStation) => ({
+          ...currentStation,
+          showAnnotations: true,
+          annotations: (currentStation.annotations || []).map((annotation) => (
+            annotation.id === annotationId ? {
+              ...annotation,
+              position: placement.position,
+              cameraPos: placement.cameraPos,
+              cameraTarget: placement.cameraTarget
+            } : annotation
+          ))
+      })));
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('heidentor:annotation-placed', { detail: { annotationId } }));
+      }, 0);
+      setPlacingAnnotationId(null);
+    });
+  };
+
+  const handleDragAnnotation = (annotationId, placement) => {
+    if (!placement?.position) return;
+    setEditingStations((currentStations) => updateStationAt(currentStations, editingIndex, (station) => ({
+        ...station,
+        showAnnotations: true,
+        annotations: (station.annotations || []).map((annotation) => (
+          annotation.id === annotationId ? {
+            ...annotation,
+            position: placement.position
+          } : annotation
+        ))
+    })));
   };
 
   const handleTestStation = (index, station) => {
     setEditingIndex(index);
-    window.appState?.flyToStation?.(station);
+    window.appState?.flyToStation?.(station, index);
   };
 
   const handleAddStation = () => {
@@ -81,21 +198,7 @@ export function useEditorActions(appState) {
       cameraPos: { x: 0, y: 10, z: 22 },
       cameraTarget: { x: 0, y: 3.5, z: 0 }
     };
-    const newStation = {
-      id: `station_${Date.now()}`,
-      title: `Neue Station ${editingStations.length + 1}`,
-      description: 'Beschreiben Sie hier, was an dieser Station zu sehen ist.',
-      viewMode: appState.viewMode || 'reveal',
-      cameraPos: coords.cameraPos,
-      cameraTarget: coords.cameraTarget,
-      revealRadius: appState.revealRadius || 0.26,
-      revealSoftness: appState.revealSoftness || 0.05,
-      bgImage: '',
-      textX: 10, textY: 35,
-      subTitle: '', subDescription: '',
-      videoUrl: '', videoX: 58, videoY: 22, videoWidth: 28, videoHeight: 18,
-      textLayer: 'front', milkyBg: false
-    };
+    const newStation = createStation(editingStations.length, appState, coords);
     const updated = [...editingStations, newStation];
     setEditingStations(updated);
     setEditingIndex(updated.length - 1);
@@ -125,8 +228,10 @@ export function useEditorActions(appState) {
   };
 
   const handleUpdateStationText = (index, field, val) => {
-    const updated = [...editingStations];
-    updated[index][field] = val;
+    const updated = updateStationAt(editingStations, index, (station) => ({
+      ...station,
+      [field]: val
+    }));
     setEditingStations(updated);
     if (editingIndex === index) {
       const setterName = FIELD_TO_STATE_SETTER[field];
@@ -142,14 +247,14 @@ export function useEditorActions(appState) {
   };
 
   const handleUpdateStationLightPos = (stationIndex, lightName, axis, val) => {
-    const updated = [...editingStations];
-    const defaultPos = lightName === 'lightKeyPos' ? DEFAULT_LIGHT_POSITIONS.key
-                     : lightName === 'lightFillPos' ? DEFAULT_LIGHT_POSITIONS.fill
-                     : DEFAULT_LIGHT_POSITIONS.spot;
-    if (!updated[stationIndex][lightName]) {
-      updated[stationIndex][lightName] = { ...defaultPos };
-    }
-    updated[stationIndex][lightName][axis] = val;
+    const defaultPos = getDefaultLightPosition(lightName);
+    const updated = updateStationAt(editingStations, stationIndex, (station) => ({
+      ...station,
+      [lightName]: {
+        ...(station[lightName] ?? defaultPos),
+        [axis]: val
+      }
+    }));
     setEditingStations(updated);
     if (editingIndex === stationIndex) {
       const setterInfo = LIGHT_POS_SETTERS[lightName];
@@ -160,18 +265,19 @@ export function useEditorActions(appState) {
   };
 
   const handleToggleLightFixedToCamera = (stationIndex, lightName, fixedFieldName, isFixed) => {
-    const updated = [...editingStations];
-    const station = updated[stationIndex];
-    const defaultPos = lightName === 'lightKeyPos' ? DEFAULT_LIGHT_POSITIONS.key
-                     : lightName === 'lightFillPos' ? DEFAULT_LIGHT_POSITIONS.fill
-                     : DEFAULT_LIGHT_POSITIONS.spot;
+    const station = editingStations[stationIndex];
+    if (!station) return;
+    const defaultPos = getDefaultLightPosition(lightName);
     const currentPos = station[lightName] ?? { ...defaultPos };
     let newPos = currentPos;
     if (window.appState?.convertPositionBetweenSpaces) {
       newPos = window.appState.convertPositionBetweenSpaces(currentPos, isFixed);
     }
-    station[fixedFieldName] = isFixed;
-    station[lightName] = newPos;
+    const updated = updateStationAt(editingStations, stationIndex, (currentStation) => ({
+      ...currentStation,
+      [fixedFieldName]: isFixed,
+      [lightName]: newPos
+    }));
     setEditingStations(updated);
     if (editingIndex === stationIndex) {
       const setterInfo = LIGHT_POS_SETTERS[lightName];
@@ -204,15 +310,14 @@ export function useEditorActions(appState) {
   };
 
   const handleUpdateStationImage = (stationIndex, imgIndex, field, val) => {
-    const updated = [...editingStations];
-    if (!updated[stationIndex].images) {
-      updated[stationIndex].images = [
-        { url: '', posX: 0, posY: 3.5, posZ: 0, scale: 1.0, fixToCamera: false },
-        { url: '', posX: 0, posY: 3.5, posZ: 0, scale: 1.0, fixToCamera: false },
-        { url: '', posX: 0, posY: 3.5, posZ: 0, scale: 1.0, fixToCamera: false }
-      ];
-    }
-    updated[stationIndex].images[imgIndex][field] = val;
+    const updated = updateStationAt(editingStations, stationIndex, (station) => {
+      const images = station.images ? [...station.images] : createImageSlots();
+      images[imgIndex] = {
+        ...(images[imgIndex] ?? createImageSlots(1)[0]),
+        [field]: val
+      };
+      return { ...station, images };
+    });
     setEditingStations(updated);
     if (editingIndex === stationIndex) {
       window.appState?.updateActiveStationImages?.(updated[stationIndex].images);
@@ -233,17 +338,80 @@ export function useEditorActions(appState) {
     reader.readAsDataURL(file);
   };
 
+  const handleAnnotationImageUpload = (stationIndex, annotationId, e) => {
+    const files = Array.from(e.target.files || []).slice(0, 4);
+    if (files.length === 0) return;
+
+    Promise.all(files.map((file) => new Promise((resolve) => {
+      if (file.size > 1.5 * 1024 * 1024) {
+        alert('Warnung: Das ausgewÃ¤hlte Bild ist sehr groÃŸ (' + (file.size / (1024 * 1024)).toFixed(1) + ' MB). Bilder Ã¼ber 1.5 MB kÃ¶nnen das Limit des lokalen Speichers (LocalStorage) Ã¼berschreiten.');
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => resolve(event.target?.result);
+      reader.readAsDataURL(file);
+    }))).then((images) => {
+      handleUpdateAnnotation(
+        stationIndex,
+        annotationId,
+        'images',
+        images.filter((image) => typeof image === 'string')
+      );
+    });
+  };
+
   const handleRestoreDefaults = () => {
     if (window.confirm('Möchten Sie wirklich die vordefinierten Standard-Stationen wiederherstellen? Ihre Änderungen gehen verloren.')) {
-      setEditingStations(JSON.parse(JSON.stringify(defaultStations)));
+      setEditingStations(cloneStationData(defaultStations));
     }
   };
 
+  const handleLocalModelFiles = async (files) => {
+    if (!files?.length) return;
+    setLocalModelPickerError('');
+    try {
+      await window.appState?.loadLocalModelFiles?.(files);
+    } catch (error) {
+      setLocalModelPickerError(error.message);
+    }
+  };
+
+  const handleLocalModelFolder = async () => {
+    if (!window.showDirectoryPicker) return false;
+    setLocalModelPickerError('');
+    try {
+      const directory = await window.showDirectoryPicker({ mode: 'read' });
+      const files = [];
+      const collectFiles = async (handle, prefix = '') => {
+        for await (const [name, entry] of handle.entries()) {
+          const relativePath = prefix ? `${prefix}/${name}` : name;
+          if (entry.kind === 'file') {
+            const file = await entry.getFile();
+            Object.defineProperty(file, 'relativePath', { value: relativePath });
+            files.push(file);
+          } else {
+            await collectFiles(entry, relativePath);
+          }
+        }
+      };
+      await collectFiles(directory);
+      await handleLocalModelFiles(files);
+      return true;
+    } catch (error) {
+      if (error.name !== 'AbortError') setLocalModelPickerError(error.message);
+      return true;
+    }
+  };
+
+  const handleRemoveLocalModel = () => {
+    setLocalModelPickerError('');
+    window.appState?.removeLocalModel?.();
+  };
   return {
     editingStations, setEditingStations,
     editingIndex, setEditingIndex,
     activeAccordionIndex, setActiveAccordionIndex,
     activeImageAccordion, setActiveImageAccordion,
+    placingAnnotationId,
     dragState, setDragState,
     enterEditorMode, saveAndExitEditor, cancelEditor,
     handleCaptureCamera, handleTestStation,
@@ -252,6 +420,10 @@ export function useEditorActions(appState) {
     handleToggleLightFixedToCamera,
     handleLocalImageUpload, getBgSelectValue,
     handleUpdateStationImage, handleLocal3DImageUpload,
-    handleRestoreDefaults
+    handleAddAnnotation, handleDeleteAnnotation, handleUpdateAnnotation,
+    handleCaptureAnnotation, handlePlaceAnnotationInScene, handleDragAnnotation, handleAnnotationImageUpload,
+    handleRestoreDefaults,
+    handleLocalModelFolder, handleLocalModelFiles, handleRemoveLocalModel,
+    localModelPickerError
   };
 }

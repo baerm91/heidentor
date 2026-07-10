@@ -1,6 +1,7 @@
 import React from 'react';
 import { Settings, X, Plus, RotateCcw, Download, Save } from 'lucide-react';
 import { StationEditorCard } from './StationEditorCard.jsx';
+import { LocalModelPanel } from './LocalModelPanel.jsx';
 import { stripHighlights } from '../../utils/textFormatting.jsx';
 import ImportExportDialog from '../../ImportExportDialog.jsx';
 
@@ -9,6 +10,7 @@ export function EditorSidebar({
   editingIndex,
   activeAccordionIndex,
   activeImageAccordion,
+  placingAnnotationId,
   configFile,
   onSetActiveAccordion,
   onSetActiveImageAccordion,
@@ -21,13 +23,25 @@ export function EditorSidebar({
   onToggleLightFixedToCamera,
   onUpdateImage,
   onUploadImage,
+  onAddAnnotation,
+  onDeleteAnnotation,
+  onUpdateAnnotation,
+  onCaptureAnnotation,
+  onPlaceAnnotationInScene,
+  onUploadAnnotationImages,
   onLocalBgUpload,
   getBgSelectValue,
   onCancel,
   onSave,
   onRealign,
   onRestoreDefaults,
-  onAddStation
+  onAddStation,
+  localModelName,
+  localModelStatus,
+  localModelError,
+  onChooseLocalModelFolder,
+  onLocalModelFiles,
+  onRemoveLocalModel
 }) {
   return (
     <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[440px] bg-zinc-950/85 backdrop-blur-3xl border-l border-white/10 z-50 flex flex-col pointer-events-auto text-white shadow-2xl">
@@ -65,6 +79,14 @@ export function EditorSidebar({
 
       {/* Editor Station List (Scrollable) */}
       <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-6 scrollbar-thin">
+        <LocalModelPanel
+          localModelName={localModelName}
+          localModelStatus={localModelStatus}
+          localModelError={localModelError}
+          onChooseLocalModelFolder={onChooseLocalModelFolder}
+          onLocalModelFiles={onLocalModelFiles}
+          onRemoveLocalModel={onRemoveLocalModel}
+        />
         {editingStations.map((station, index) => (
           <StationEditorCard
             key={station.id}
@@ -74,6 +96,7 @@ export function EditorSidebar({
             totalStations={editingStations.length}
             activeAccordionIndex={activeAccordionIndex}
             activeImageAccordion={activeImageAccordion}
+            placingAnnotationId={placingAnnotationId}
             onSetActiveAccordion={onSetActiveAccordion}
             onSetActiveImageAccordion={onSetActiveImageAccordion}
             onMoveStation={onMoveStation}
@@ -85,6 +108,12 @@ export function EditorSidebar({
             onToggleLightFixedToCamera={onToggleLightFixedToCamera}
             onUpdateImage={onUpdateImage}
             onUploadImage={onUploadImage}
+            onAddAnnotation={onAddAnnotation}
+            onDeleteAnnotation={onDeleteAnnotation}
+            onUpdateAnnotation={onUpdateAnnotation}
+            onCaptureAnnotation={onCaptureAnnotation}
+            onPlaceAnnotationInScene={onPlaceAnnotationInScene}
+            onUploadAnnotationImages={onUploadAnnotationImages}
             onLocalBgUpload={onLocalBgUpload}
             getBgSelectValue={getBgSelectValue}
           />

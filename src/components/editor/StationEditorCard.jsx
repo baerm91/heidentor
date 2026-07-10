@@ -1,8 +1,8 @@
 import React from 'react';
-import { ArrowUp, ArrowDown, Trash2, Play, Sun, ChevronDown, ChevronUp, Image as ImageIcon } from 'lucide-react';
+import { ArrowUp, ArrowDown, Trash2, Play, Sun, ChevronDown, ChevronUp, Image as ImageIcon, MapPin, MousePointer2, Plus } from 'lucide-react';
 import { LightPositionControl } from './LightPositionControl.jsx';
 import { ImageSlotEditor } from './ImageSlotEditor.jsx';
-import { LIGHT_SOURCES, LIGHT_POSITION_CONFIGS, PORTAL_PARAMS } from '../../constants.js';
+import { BACKGROUND_IMAGE_OPTIONS, LIGHT_SOURCES, LIGHT_POSITION_CONFIGS, PORTAL_PARAMS } from '../../constants.js';
 import { stripHighlights } from '../../utils/textFormatting.jsx';
 
 export function StationEditorCard({
@@ -12,6 +12,7 @@ export function StationEditorCard({
   totalStations,
   activeAccordionIndex,
   activeImageAccordion,
+  placingAnnotationId,
   onSetActiveAccordion,
   onSetActiveImageAccordion,
   onMoveStation,
@@ -23,6 +24,12 @@ export function StationEditorCard({
   onToggleLightFixedToCamera,
   onUpdateImage,
   onUploadImage,
+  onAddAnnotation,
+  onDeleteAnnotation,
+  onUpdateAnnotation,
+  onCaptureAnnotation,
+  onPlaceAnnotationInScene,
+  onUploadAnnotationImages,
   onLocalBgUpload,
   getBgSelectValue
 }) {
@@ -160,12 +167,11 @@ export function StationEditorCard({
           }}
           className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none"
         >
-          <option value="">Keines (Standard dunkel)</option>
-          <option value="roman_blueprint_bg.png">Römische Bauzeichnung (Blaupause)</option>
-          <option value="star_sky_bg.png">Sternenhimmel (Dramatisch)</option>
-          <option value="heidentor_blueprint.png">Heidentor Aufriss-Zeichnung</option>
-          <option value="upload">Eigene Bilddatei hochladen (.png, .jpg)</option>
-          <option value="custom">Externe URL / Pfad</option>
+          {BACKGROUND_IMAGE_OPTIONS.map((option) => (
+            <option key={option.value || 'default'} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
 
         {getBgSelectValue(station.bgImage) === 'upload' && (
@@ -324,6 +330,18 @@ export function StationEditorCard({
         </button>
       </div>
 
+      {/* Free navigation */}
+      <label className="flex items-center gap-2 px-3 py-2 bg-zinc-950/45 border border-zinc-850 rounded-xl text-xs cursor-pointer hover:border-amber-500/25 select-none">
+        <input
+          type="checkbox"
+          checked={!!station.freeNavigation}
+          onChange={(e) => onUpdateText(index, 'freeNavigation', e.target.checked)}
+          className="accent-amber-500 rounded border-zinc-700 bg-zinc-900"
+        />
+        <MousePointer2 size={13} className="text-amber-400" />
+        <span className="text-zinc-300">Freie Navigation an dieser Station erlauben</span>
+      </label>
+
       {/* Licht & Schatten Accordion Section */}
       <div className="border border-zinc-800 rounded-xl overflow-hidden mt-1 bg-zinc-950/30">
         <button
@@ -437,6 +455,136 @@ export function StationEditorCard({
                 />
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Annotationen Accordion Section */}
+      <div className="border border-zinc-800 rounded-xl overflow-hidden mt-1 bg-zinc-950/30">
+        <button
+          type="button"
+          onClick={() => onSetActiveAccordion(activeAccordionIndex === 'annotations' ? null : 'annotations')}
+          className="w-full flex justify-between items-center px-3 py-2 text-left bg-zinc-950/50 hover:bg-zinc-900/50 transition-colors"
+        >
+          <div className="flex items-center gap-2 text-zinc-300">
+            <MapPin size={12} className="text-amber-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Annotationen</span>
+            <span className="text-[9px] text-zinc-500">({station.annotations?.length ?? 0})</span>
+          </div>
+          {activeAccordionIndex === 'annotations' ? <ChevronUp size={14} className="text-zinc-550" /> : <ChevronDown size={14} className="text-zinc-550" />}
+        </button>
+
+        {activeAccordionIndex === 'annotations' && (
+          <div className="p-3 flex flex-col gap-3 border-t border-zinc-850 bg-zinc-950/10 animate-blur-fade-up">
+            <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!station.showAnnotations}
+                onChange={(e) => onUpdateText(index, 'showAnnotations', e.target.checked)}
+                className="accent-amber-500 rounded border-zinc-700 bg-zinc-900"
+              />
+              <span>Annotationen in dieser Station anzeigen</span>
+            </label>
+
+            {(station.annotations || []).map((annotation, annotationIndex) => (
+              <div key={annotation.id} className="rounded-xl border border-zinc-800 bg-zinc-950/45 p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Punkt {annotationIndex + 1}</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onCaptureAnnotation(index, annotation.id)}
+                      className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 hover:bg-amber-500/20"
+                      title="Aktuellen Blick und Markerposition speichern"
+                    >
+                      Setzen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPlaceAnnotationInScene(index, annotation.id)}
+                      className={`px-2 py-1 rounded-lg border text-[10px] transition-colors ${
+                        placingAnnotationId === annotation.id
+                          ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
+                          : 'bg-zinc-900/80 border-zinc-700 text-zinc-300 hover:border-emerald-400/40 hover:text-emerald-200'
+                      }`}
+                      title="NÃ¤chsten Klick im 3D-Raum als Annotation-Position speichern"
+                    >
+                      {placingAnnotationId === annotation.id ? 'Klick im Raum...' : 'Im Raum platzieren'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteAnnotation(index, annotation.id)}
+                      className="p-1 rounded bg-red-950/30 hover:bg-red-900/40 text-red-400"
+                      title="Annotation lÃ¶schen"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                <input
+                  type="text"
+                  placeholder="Titel"
+                  value={annotation.title ?? ''}
+                  onChange={(e) => onUpdateAnnotation(index, annotation.id, 'title', e.target.value)}
+                  className="w-full bg-zinc-950/70 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-amber-500/50"
+                />
+                <textarea
+                  rows="3"
+                  placeholder="Text"
+                  value={annotation.text ?? ''}
+                  onChange={(e) => onUpdateAnnotation(index, annotation.id, 'text', e.target.value)}
+                  className="w-full bg-zinc-950/70 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-amber-500/50 resize-none leading-relaxed"
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => {
+                    onUploadAnnotationImages(index, annotation.id, e);
+                    e.target.value = '';
+                  }}
+                  className="w-full bg-zinc-950/70 border border-zinc-800 rounded-lg px-3 py-1 text-xs focus:outline-none focus:border-amber-500/50"
+                />
+                {annotation.images?.length > 0 && (
+                  <span className="text-[9px] text-emerald-400">{annotation.images.length} Bild(er) hinterlegt</span>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  {['x', 'y', 'z'].map((axis) => (
+                    <label key={axis} className="flex flex-col gap-1">
+                      <span className="text-[8px] uppercase tracking-wider text-zinc-550">{axis.toUpperCase()}</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={Number(annotation.position?.[axis] ?? 0).toFixed(1)}
+                        onChange={(e) => {
+                          const nextPosition = {
+                            x: annotation.position?.x ?? 0,
+                            y: annotation.position?.y ?? 3.5,
+                            z: annotation.position?.z ?? 0,
+                            [axis]: parseFloat(e.target.value) || 0
+                          };
+                          onUpdateAnnotation(index, annotation.id, 'position', nextPosition);
+                        }}
+                        className="w-full bg-zinc-950/70 border border-zinc-800 rounded-lg px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-amber-500/50"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <span className="text-[9px] font-mono text-zinc-500">
+                  Pos: {(annotation.position?.x ?? 0).toFixed(1)}, {(annotation.position?.y ?? 0).toFixed(1)}, {(annotation.position?.z ?? 0).toFixed(1)}
+                </span>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => onAddAnnotation(index)}
+              className="w-full border border-dashed border-zinc-700 hover:border-amber-500/50 rounded-xl py-2 flex items-center justify-center gap-2 text-xs font-semibold text-zinc-400 hover:text-amber-400 transition-all"
+            >
+              <Plus size={13} />
+              <span>Annotation hinzufÃ¼gen</span>
+            </button>
           </div>
         )}
       </div>

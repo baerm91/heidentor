@@ -1,6 +1,33 @@
 import * as THREE from 'three';
 import { ctx } from './context.js';
 
+const MAX_TEXTURE_CACHE_SIZE = 24;
+
+function cacheTexture(url, texture) {
+  const existingTexture = ctx.textureCache[url];
+  if (existingTexture && existingTexture !== texture) {
+    texture.dispose();
+    return existingTexture;
+  }
+
+  ctx.textureCache[url] = texture;
+  const cachedUrls = Object.keys(ctx.textureCache);
+  if (cachedUrls.length <= MAX_TEXTURE_CACHE_SIZE) return texture;
+
+  const activeTextures = new Set(ctx.stationImages.map((mesh) => mesh.material.map).filter(Boolean));
+  const removableUrl = cachedUrls.find((cachedUrl) => {
+    const cachedTexture = ctx.textureCache[cachedUrl];
+    return cachedUrl !== url && !activeTextures.has(cachedTexture);
+  });
+
+  if (removableUrl) {
+    ctx.textureCache[removableUrl].dispose();
+    delete ctx.textureCache[removableUrl];
+  }
+
+  return texture;
+}
+
 export function initStationImages() {
   for (let i = 0; i < 3; i++) {
     const geom = new THREE.PlaneGeometry(1, 1);
@@ -19,7 +46,10 @@ export function initStationImages() {
 
 export function updateStationImages(images) {
   if (!images || !Array.isArray(images)) {
-    ctx.stationImages.forEach(mesh => { mesh.visible = false; });
+    ctx.stationImages.forEach((mesh) => {
+      mesh.userData.requestedUrl = '';
+      mesh.visible = false;
+    });
     return;
   }
 
@@ -29,11 +59,13 @@ export function updateStationImages(images) {
 
     const imgData = images[i];
     if (!imgData || !imgData.url) {
+      mesh.userData.requestedUrl = '';
       mesh.visible = false;
       continue;
     }
 
     const url = imgData.url;
+    mesh.userData.requestedUrl = url;
     mesh.userData.fixToCamera = !!imgData.fixToCamera;
     mesh.userData.localPosX = imgData.posX ?? 0;
     mesh.userData.localPosY = imgData.posY ?? 0;
@@ -57,15 +89,18 @@ export function updateStationImages(images) {
     } else {
       mesh.visible = false;
       ctx.textureLoader.load(url, (tex) => {
-        // Double check if the url matches the current one for this slot
-        if (imgData.url === url) {
-          ctx.textureCache[url] = tex;
-          mesh.material.map = tex;
+        if (mesh.userData.requestedUrl === url) {
+          const cachedTexture = cacheTexture(url, tex);
+          mesh.material.map = cachedTexture;
           mesh.material.needsUpdate = true;
           mesh.visible = true;
           
-          const aspect = (tex.image && tex.image.height) ? (tex.image.width / tex.image.height) : 1;
+          const aspect = (cachedTexture.image && cachedTexture.image.height)
+            ? (cachedTexture.image.width / cachedTexture.image.height)
+            : 1;
           mesh.scale.set(baseScale * aspect, baseScale, 1);
+        } else {
+          tex.dispose();
         }
       }, undefined, (err) => {
         console.error("Error loading image texture:", url, err);

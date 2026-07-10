@@ -4,6 +4,7 @@ import { ctx } from './context.js';
 import { saveAlignment, matrixToAlignment, alignmentToMatrix, clearAlignment } from '../alignment.js';
 import { saveDraftStations } from '../stations.js';
 import { configureReconstructionDepth } from './portalTransition.js';
+import { loadLocalModelFiles, removeLocalModel } from './localModel.js';
 
 // Synchronously initialize window.appState to avoid race conditions with animation loop
 window.appState = {
@@ -24,6 +25,9 @@ window.appState = {
   hasUserManipulatedCamera: false,
   introPhase: 'idle',
   hasIntroPlayed: false,
+  localModelName: '',
+  localModelStatus: 'idle',
+  localModelError: '',
 
   realign: null,
   resetAlignment: null,
@@ -51,6 +55,13 @@ window.appState = {
   setLightFillFixedToCamera: null,
   setLightSpotFixedToCamera: null,
   convertPositionBetweenSpaces: null,
+  loadLocalModelFiles: null,
+  removeLocalModel: null,
+  captureAnnotationContext: null,
+  startAnnotationPlacement: null,
+  cancelAnnotationPlacement: null,
+  pickAnnotationPlacementAt: null,
+  projectWorldPoint: null,
   onStateChange: null,
 
   update(fields) {
@@ -60,6 +71,19 @@ window.appState = {
 };
 
 export function setupStateBridge() {
+  window.appState.loadLocalModelFiles = async (files) => {
+    window.appState.update({ localModelStatus: 'loading', localModelError: '' });
+    try {
+      await loadLocalModelFiles(files);
+    } catch (error) {
+      window.appState.update({ localModelStatus: 'error', localModelError: error.message });
+      throw error;
+    }
+  };
+
+  window.appState.removeLocalModel = () => {
+    removeLocalModel();
+  };
   window.appState.realign = () => {
     // We clear alignment and reload
     clearAlignment();
@@ -261,6 +285,9 @@ export function setupStateBridge() {
 
   window.appState.setStationMode = (mode) => {
     window.appState.update({ stationMode: mode });
+    if (ctx.localModel) {
+      ctx.localModel.visible = mode === 'editor';
+    }
     if (mode === 'editor') {
       ctx.controls.enabled = true;
       ctx.controls.autoRotate = false;
@@ -296,9 +323,88 @@ export function setupStateBridge() {
     };
   };
 
-  window.appState.flyToStation = (station) => {
+  window.appState.captureAnnotationContext = () => {
+    const cameraData = window.appState.captureCamera();
+    ctx.raycaster.setFromCamera(new THREE.Vector2(0, 0), ctx.camera);
+    const hitObjects = ctx.revealHitMeshes?.length ? ctx.revealHitMeshes : [ctx.ruinModel, ctx.reconModel].filter(Boolean);
+    const hits = ctx.raycaster.intersectObjects(hitObjects, true);
+    const point = hits[0]?.point ?? ctx.controls.target;
+
+    return {
+      ...cameraData,
+      position: { x: point.x, y: point.y, z: point.z }
+    };
+  };
+
+  window.appState.startAnnotationPlacement = (onPlace) => {
+    ctx.pendingAnnotationPlacement = typeof onPlace === 'function' ? onPlace : null;
+    document.body.classList.toggle('annotation-placement-mode', !!ctx.pendingAnnotationPlacement);
+  };
+
+  window.appState.cancelAnnotationPlacement = () => {
+    ctx.pendingAnnotationPlacement = null;
+    document.body.classList.remove('annotation-placement-mode');
+  };
+
+  window.appState.pickAnnotationPlacementAt = (clientX, clientY) => {
+    if (!ctx.canvas || !ctx.camera) return null;
+
+    const rect = ctx.canvas.getBoundingClientRect();
+    const mx = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const my = -((clientY - rect.top) / rect.height) * 2 + 1;
+    ctx.raycaster.setFromCamera(new THREE.Vector2(mx, my), ctx.camera);
+
+    const pickTargets = [ctx.ruinModel, ctx.reconModel, ctx.localModel].filter((model) => model?.visible);
+    const hits = pickTargets.length > 0 ? ctx.raycaster.intersectObjects(pickTargets, true) : [];
+    let point = hits[0]?.point?.clone();
+
+    if (point && hits[0]?.face && hits[0]?.object) {
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(hits[0].object.matrixWorld);
+      const normal = hits[0].face.normal.clone().applyMatrix3(normalMatrix).normalize();
+      point.addScaledVector(normal, 0.08);
+    }
+
+    if (!point) {
+      const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const groundPoint = new THREE.Vector3();
+      if (ctx.raycaster.ray.intersectPlane(groundPlane, groundPoint)) {
+        point = groundPoint;
+        point.y += 0.08;
+      }
+    }
+
+    if (!point) point = ctx.controls.target.clone();
+
+    return {
+      position: { x: point.x, y: point.y, z: point.z },
+      cameraPos: { x: ctx.camera.position.x, y: ctx.camera.position.y, z: ctx.camera.position.z },
+      cameraTarget: { x: ctx.controls.target.x, y: ctx.controls.target.y, z: ctx.controls.target.z }
+    };
+  };
+
+  window.appState.projectWorldPoint = (point) => {
+    if (!point || !ctx.camera || !ctx.renderer) return null;
+    const width = ctx.renderer.domElement.clientWidth || window.innerWidth;
+    const height = ctx.renderer.domElement.clientHeight || window.innerHeight;
+    const vector = new THREE.Vector3(point.x, point.y, point.z);
+    vector.project(ctx.camera);
+
+    if (vector.z < -1 || vector.z > 1) return null;
+
+    return {
+      x: (vector.x * 0.5 + 0.5) * width,
+      y: (-vector.y * 0.5 + 0.5) * height,
+      visible: vector.z >= -1 && vector.z <= 1
+    };
+  };
+
+  window.appState.flyToStation = (station, stationIndex = null) => {
     gsap.killTweensOf(ctx.camera.position);
     gsap.killTweensOf(ctx.controls.target);
+    if (ctx.flyToTransitionTween) {
+      ctx.flyToTransitionTween.kill();
+      ctx.flyToTransitionTween = null;
+    }
     const currentStation = window.appState.stations[window.appState.currentStationIndex] || station;
     const transitionConfig = ctx.actions.getPortalTransitionConfig(currentStation, station);
     const isPortalRevealFlyTo = ctx.actions.isPortalRevealTransition(currentStation.viewMode, station.viewMode);
@@ -354,8 +460,7 @@ export function setupStateBridge() {
       ));
     }
     
-    gsap.killTweensOf(transitionObj);
-    gsap.to(transitionObj, {
+    ctx.flyToTransitionTween = gsap.to(transitionObj, {
       progress: 1,
       duration: flyDuration,
       ease: flyEase,
@@ -373,12 +478,19 @@ export function setupStateBridge() {
         ctx.actions.applyTransitionState(state);
       },
       onComplete: () => {
-        window.appState.update({ 
+        const resolvedIndex = Number.isInteger(stationIndex)
+          ? stationIndex
+          : window.appState.stations.findIndex((candidate) => candidate.id === station.id);
+        const nextState = {
           viewMode: station.viewMode,
-          currentStationIndex: window.appState.stations.indexOf(station),
           lightIntensity: ctx.targetLightIntensity,
           shadowDiffuse: ctx.targetShadowDiffuse
-        });
+        };
+        if (window.appState.stationMode !== 'editor' && resolvedIndex >= 0) {
+          nextState.currentStationIndex = resolvedIndex;
+        }
+        window.appState.update(nextState);
+        ctx.flyToTransitionTween = null;
       }
     });
   };
